@@ -6,6 +6,7 @@ import {
 import { clsx } from "clsx";
 import { usePlayer } from "../hooks/usePlayer";
 import { SubtitleDialog } from "./SubtitleDialog";
+import { NowNext, EpgPanel, EpgMenuButton } from "./Epg";
 import type { Channel } from "../types";
 
 interface Props {
@@ -38,6 +39,7 @@ export function Player({ channel, onClose, onPrev, onNext, onJump, position }: P
   const [showControls, setShowControls] = useState(true);
   const [showMenu, setShowMenu] = useState(false);
   const [showSubs, setShowSubs] = useState(false);
+  const [showEpg, setShowEpg] = useState(false);
   const [osd, setOsd] = useState<string | null>(null);
 
   const flash = (text: string) => {
@@ -129,6 +131,8 @@ export function Player({ channel, onClose, onPrev, onNext, onJump, position }: P
 
       {showSubs && <SubtitleDialog channel={channel} state={state} actions={actions} onClose={() => setShowSubs(false)} />}
 
+      {showEpg && <EpgPanel channel={channel} onClose={() => setShowEpg(false)} />}
+
       {state.loading && !state.error && !state.blocked && (
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/45">
           <Loader2 className="h-12 w-12 animate-spin text-brand" />
@@ -173,6 +177,7 @@ export function Player({ channel, onClose, onPrev, onNext, onJump, position }: P
           <button onClick={onClose} className="rounded-full p-2 hover:bg-white/10" aria-label="Cerrar reproductor"><X className="h-5 w-5" /></button>
           <div className="min-w-0 flex-1">
             <p className="truncate font-semibold">{channel.name}</p>
+            <NowNext channel={channel} />
             <p className="truncate text-xs text-ink-muted">
               {position && position.total > 1 && <span className="font-mono text-aqua">{position.index + 1}/{position.total} · </span>}
               {channel.group}
@@ -276,6 +281,7 @@ export function Player({ channel, onClose, onPrev, onNext, onJump, position }: P
                       </div>
                     </div>
                   )}
+                  <EpgMenuButton channel={channel} className={optBtn(false) + " w-full"} onClick={() => { setShowEpg(true); setShowMenu(false); }} />
                   <button onClick={actions.requestPiP} className={optBtn(false) + " w-full"}>Picture-in-Picture</button>
                   <button onClick={actions.retry} className={optBtn(false) + " w-full"}>Recargar fuente</button>
                   <p className="border-t border-white/5 pt-2 text-[10px] leading-relaxed text-ink-dim">

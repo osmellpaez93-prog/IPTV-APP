@@ -3,6 +3,7 @@ import { clsx } from "clsx";
 import { Star, Play } from "lucide-react";
 import type { Channel } from "../types";
 import { imgUrl } from "../services/proxy";
+import { useEpg } from "../hooks/useEpg";
 
 interface Props {
   channel: Channel;
@@ -19,6 +20,9 @@ const TONE: Record<Channel["category"], string> = {
 function CardBase({ channel, isFavorite, onToggleFavorite, onPlay, index }: Props) {
   const [imgError, setImgError] = useState(false);
   const logo = imgUrl(channel.logo);
+  // Solo canales en vivo; espera 400 ms para no pedir la guía mientras se hace scroll rápido
+  const { current, now } = useEpg(channel.category === "live" ? channel : null, 400);
+  const pct = current ? Math.min(100, Math.max(0, ((now - current.start) / (current.end - current.start)) * 100)) : 0;
 
   return (
     <div
@@ -29,7 +33,7 @@ function CardBase({ channel, isFavorite, onToggleFavorite, onPlay, index }: Prop
         if (e.target !== e.currentTarget) return;
         if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPlay(channel); }
       }}
-      className="group relative flex h-[72px] items-center gap-3 rounded-xl border border-white/5 bg-bg-card px-3 hover:border-brand/40 hover:bg-bg-hover cursor-pointer"
+      className="group relative flex h-[72px] cursor-pointer items-center gap-3 overflow-hidden rounded-xl border border-white/5 bg-bg-card px-3 hover:border-brand/40 hover:bg-bg-hover"
     >
       <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-bg-deep ring-1 ring-white/5">
         {logo && !imgError ? (
@@ -48,17 +52,23 @@ function CardBase({ channel, isFavorite, onToggleFavorite, onPlay, index }: Prop
         <p className="truncate text-sm font-semibold leading-tight">{channel.name}</p>
         <p className="mt-0.5 truncate text-xs text-ink-muted">
           {index != null && <span className={clsx("font-mono", TONE[channel.category])}>{index + 1} · </span>}
-          {channel.group || "Sin categoria"}
+          {current ? <span className="text-ink">{current.title}</span> : channel.group || "Sin categoría"}
         </p>
       </div>
 
       <button
         onClick={(e) => { e.stopPropagation(); onToggleFavorite(channel.id); }}
         className="rounded-full p-2 hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-brand"
-        aria-label={isFavorite ? "Quitar de favoritos" : "Anadir a favoritos"}
+        aria-label={isFavorite ? "Quitar de favoritos" : "Añadir a favoritos"}
       >
         <Star className={clsx("h-5 w-5", isFavorite ? "fill-gold text-gold" : "text-ink-dim")} />
       </button>
+
+      {current && (
+        <span className="absolute inset-x-0 bottom-0 h-[3px] bg-white/5">
+          <span className="block h-full bg-brand/80" style={{ width: `${pct}%` }} />
+        </span>
+      )}
     </div>
   );
 }
