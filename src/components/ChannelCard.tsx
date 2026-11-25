@@ -47,7 +47,7 @@ function CardBase({ channel, isFavorite, onToggleFavorite, onPlay, index }: Prop
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold leading-tight">{channel.name}</p>
         <p className="mt-0.5 truncate text-xs text-ink-muted">
-          {index != null && <span className={clsx("font-mono", TONE[channel.category])}>{index + 1} Â· </span>}
+          {index != null && <span className={clsx("font-mono", TONE[channel.category])}>{index + 1} · </span>}
           {channel.group || "Sin categoria"}
         </p>
       </div>

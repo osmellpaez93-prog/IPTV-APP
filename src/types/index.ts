@@ -41,6 +41,7 @@ export interface WatchHistory {
   position: number;
   duration: number;
   updatedAt: number;
+  item?: Channel; // copia reproducible: permite continuar episodios de series
 }
 
 export interface Settings {

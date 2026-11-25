@@ -43,7 +43,8 @@ export const useStore = create<UIState>()(
           return { nowPlaying: c, queue: inQueue ? s.queue : [c] };
         }),
 
-      play: (c, list) => set({ nowPlaying: c, queue: list && list.length ? list : [c] }),
+      play: (c, list) =>
+        set(c.seriesId ? { openSeries: c } : { nowPlaying: c, queue: list && list.length ? list : [c] }),
 
       zap: (delta) => {
         const { queue, nowPlaying } = get();

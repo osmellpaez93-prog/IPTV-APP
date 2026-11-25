@@ -52,7 +52,7 @@ export function CategoryPage({ category, title, placeholder, noun }: Props) {
     <div className="animate-fade-in space-y-5">
       <div>
         <h1 className="text-2xl font-bold md:text-3xl">{title}</h1>
-        <p className="mt-1 text-ink-muted">{items ? `${filtered.length.toLocaleString()} ${noun}` : "Cargandoâ€¦"}</p>
+        <p className="mt-1 text-ink-muted">{items ? `${filtered.length.toLocaleString()} ${noun}` : "Cargando…"}</p>
       </div>
 
       <div className="flex flex-col gap-3 md:flex-row">

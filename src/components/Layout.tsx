@@ -25,8 +25,8 @@ export function Layout() {
     <div className="relative min-h-screen">
       {/* Fondo con profundidad: mesh + grano, estatico y barato */}
       <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-bg">
-        <div className="absolute -left-40 -top-40 h-[520px] w-[520px] animate-drift rounded-full bg-brand/18 blur-[130px]" />
-        <div className="absolute -right-32 top-1/4 h-[460px] w-[460px] animate-drift rounded-full bg-iris/14 blur-[140px]" />
+        <div className="absolute -left-40 -top-40 h-[520px] w-[520px] animate-drift rounded-full bg-brand/20 blur-[130px]" />
+        <div className="absolute -right-32 top-1/4 h-[460px] w-[460px] animate-drift rounded-full bg-iris/15 blur-[140px]" />
         <div className="absolute bottom-0 left-1/3 h-[420px] w-[420px] animate-drift rounded-full bg-aqua/10 blur-[150px]" />
         <div className="grain absolute inset-0 opacity-[0.035] mix-blend-overlay" />
       </div>

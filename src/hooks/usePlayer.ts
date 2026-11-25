@@ -103,7 +103,7 @@ export function usePlayer(channel: Channel | null) {
   const extTracksRef = useRef<{ id: string; el: HTMLTrackElement; url: string; offset: number }[]>([]);
   const activeExtRef = useRef<string | null>(null);
   const channelRef = useRef<Channel | null>(channel);
-  channelRef.current = channel;
+  useEffect(() => { channelRef.current = channel; });
 
   const [reloadKey, setReloadKey] = useState(0);
   const [state, setState] = useState<PlayerState>(INITIAL);
@@ -195,6 +195,7 @@ export function usePlayer(channel: Channel | null) {
       setState((s) => ({ ...s, loading: false, stalled: false, blocked: false, error: null }));
     };
     const onWaiting = () => {
+      if (!isLive) return;
       clearStall();
       stallTimer = window.setTimeout(() => {
         if (!alive) return;
@@ -232,13 +233,14 @@ export function usePlayer(channel: Channel | null) {
       clearWatchdog();
       watchdog = window.setTimeout(
         () => next(isLive ? "El canal no responde" : "La fuente no responde"),
-        isLive ? 14000 : 22000
+        isLive ? 14000 : 60000
       );
 
       const tryPlay = () => {
         video.play().catch((err: any) => {
           if (!alive) return;
           if (err && (err.name === "NotAllowedError" || err.name === "AbortError")) {
+            if (err.name === "NotAllowedError") clearWatchdog();
             setState((s) => ({ ...s, blocked: err.name === "NotAllowedError", loading: false }));
           }
         });
@@ -337,7 +339,7 @@ export function usePlayer(channel: Channel | null) {
       if (p / d > 0.97) { void db.history.delete(ch.id).catch(() => {}); return; }
       void db.history.put({
         id: ch.id, position: p, duration: d, updatedAt: Date.now(),
-        name: ch.name, logo: ch.logo, group: ch.group,
+        item: ch,
         playlistId: ch.playlistId, category: ch.category,
       }).catch(() => {});
     };

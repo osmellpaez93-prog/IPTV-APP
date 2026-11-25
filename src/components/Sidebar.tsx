@@ -51,7 +51,7 @@ export function Sidebar() {
 
         <div className="border-t border-white/5 p-4 text-[11px] leading-relaxed text-ink-dim">
           <p className="font-semibold text-ink-muted">StreamBox v0.4</p>
-          <p>Flechas para navegar Â· Enter abre</p>
+          <p>Flechas para navegar · Enter abre</p>
         </div>
       </aside>
     </>

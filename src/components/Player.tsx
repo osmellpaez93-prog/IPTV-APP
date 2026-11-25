@@ -134,7 +134,7 @@ export function Player({ channel, onClose, onPrev, onNext, onJump, position }: P
           <Loader2 className="h-12 w-12 animate-spin text-brand" />
           {state.attempts > 1 && (
             <span className="rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-ink-muted">
-              Fuente {state.attempt}/{state.attempts}{state.engine ? ` Â· ${ENGINE_LABEL[state.engine]}` : ""}
+              Fuente {state.attempt}/{state.attempts}{state.engine ? ` · ${ENGINE_LABEL[state.engine]}` : ""}
             </span>
           )}
         </div>
@@ -150,7 +150,7 @@ export function Player({ channel, onClose, onPrev, onNext, onJump, position }: P
       )}
 
       {state.stalled && !state.error && (
-        <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 rounded-full bg-warn/20 px-3 py-1 text-xs font-semibold text-warn">Bufferingâ€¦</div>
+        <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 rounded-full bg-warn/20 px-3 py-1 text-xs font-semibold text-warn">Buffering…</div>
       )}
 
       {osd && (
@@ -174,7 +174,7 @@ export function Player({ channel, onClose, onPrev, onNext, onJump, position }: P
           <div className="min-w-0 flex-1">
             <p className="truncate font-semibold">{channel.name}</p>
             <p className="truncate text-xs text-ink-muted">
-              {position && position.total > 1 && <span className="font-mono text-aqua">{position.index + 1}/{position.total} Â· </span>}
+              {position && position.total > 1 && <span className="font-mono text-aqua">{position.index + 1}/{position.total} · </span>}
               {channel.group}
             </p>
           </div>
@@ -264,7 +264,7 @@ export function Player({ channel, onClose, onPrev, onNext, onJump, position }: P
                       </div>
                     </div>
                   )}
-                  <button onClick={() => { setShowSubs(true); setShowMenu(false); }} className={optBtn(false) + " w-full"}>Buscar / cargar subtitulosâ€¦</button>
+                  <button onClick={() => { setShowSubs(true); setShowMenu(false); }} className={optBtn(false) + " w-full"}>Buscar / cargar subtitulos…</button>
                   {state.extSubs.length > 0 && (
                     <div>
                       <p className="mb-1 text-xs text-ink-muted">Subtitulos anadidos</p>
@@ -279,7 +279,7 @@ export function Player({ channel, onClose, onPrev, onNext, onJump, position }: P
                   <button onClick={actions.requestPiP} className={optBtn(false) + " w-full"}>Picture-in-Picture</button>
                   <button onClick={actions.retry} className={optBtn(false) + " w-full"}>Recargar fuente</button>
                   <p className="border-t border-white/5 pt-2 text-[10px] leading-relaxed text-ink-dim">
-                    Espacio play Â· â† â†’ 10 s Â· â†‘ â†“ volumen Â· Shift+â†‘ â†“ canal Â· teclas 0-9 saltar Â· F pantalla Â· M silencio Â· P PiP
+                    Espacio play · ← → 10 s · ↑ ↓ volumen · Shift+↑ ↓ canal · teclas 0-9 saltar · F pantalla · M silencio · P PiP
                   </p>
                 </div>
               )}

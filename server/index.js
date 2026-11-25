@@ -20,6 +20,127 @@ const UA_VLC = "VLC/3.0.20 LibVLC/3.0.20";
 app.use(cors({ exposedHeaders: ["Content-Range", "Accept-Ranges", "Content-Length"], allowedHeaders: ["Range", "Content-Type", "Accept"] }));
 app.get("/health", (_req, res) => res.json({ ok: true, uptime: process.uptime() }));
 
+// ---------------------------------------------------------------- OpenSubtitles
+app.use("/api", express.json({ limit: "1mb" }));
+
+const OS_API = "https://api.opensubtitles.com/api/v1";
+const OS_UA = "StreamBox v0.1";
+const osTokens = new Map();
+
+const osHeaders = (apiKey, extra = {}) => ({
+  "Api-Key": apiKey,
+  "User-Agent": OS_UA,
+  Accept: "application/json",
+  "Content-Type": "application/json",
+  ...extra,
+});
+
+function decodeText(buf) {
+  const utf8 = new TextDecoder("utf-8").decode(buf);
+  if (!utf8.includes("\uFFFD")) return utf8;
+  return new TextDecoder("windows-1252").decode(buf);
+}
+
+function srtToVtt(srt) {
+  const text = srt.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").trim();
+  return "WEBVTT\n\n" + text.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, "$1.$2") + "\n";
+}
+
+async function osLogin(apiKey, username, password) {
+  const key = apiKey + ":" + username;
+  const cached = osTokens.get(key);
+  if (cached && Date.now() - cached.at < 20 * 3600 * 1000) return cached;
+  const r = await fetch(`${OS_API}/login`, {
+    method: "POST",
+    headers: osHeaders(apiKey),
+    body: JSON.stringify({ username, password }),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.token) {
+    const err = new Error(d.message || "Usuario o contrasena de OpenSubtitles incorrectos.");
+    err.status = r.ok ? 401 : r.status;
+    throw err;
+  }
+  const entry = { token: d.token, host: d.base_url || "api.opensubtitles.com", at: Date.now() };
+  osTokens.set(key, entry);
+  return entry;
+}
+
+app.post("/api/subs/search", async (req, res) => {
+  const { apiKey, query, year, languages, season, episode } = req.body || {};
+  if (!apiKey) return res.status(400).json({ error: "Falta la API key de OpenSubtitles (en Ajustes)." });
+  if (!query) return res.status(400).json({ error: "Escribe el titulo a buscar." });
+
+  const p = new URLSearchParams();
+  p.set("query", String(query).toLowerCase());
+  if (languages) p.set("languages", String(languages).toLowerCase());
+  if (season && episode) {
+    p.set("season_number", String(season));
+    p.set("episode_number", String(episode));
+    p.set("type", "episode");
+  } else {
+    p.set("type", "movie");
+    if (year) p.set("year", String(year));
+  }
+  p.set("order_by", "download_count");
+  const qs = new URLSearchParams([...p.entries()].sort(([a], [b]) => a.localeCompare(b))).toString();
+
+  try {
+    const r = await fetch(`${OS_API}/subtitles?${qs}`, { headers: osHeaders(apiKey) });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) return res.status(r.status).json({ error: data.message || `OpenSubtitles respondio ${r.status}` });
+    const items = (data.data || [])
+      .map((d) => {
+        const a = d.attributes || {};
+        const f = (a.files || [])[0] || {};
+        return {
+          fileId: f.file_id,
+          release: a.release || f.file_name || a.feature_details?.title || "",
+          language: a.language || "",
+          downloads: a.download_count || 0,
+          hearingImpaired: !!a.hearing_impaired,
+          trusted: !!a.from_trusted,
+          ai: !!a.ai_translated,
+          title: a.feature_details?.title,
+          year: a.feature_details?.year,
+        };
+      })
+      .filter((x) => x.fileId);
+    res.json({ items });
+  } catch (e) {
+    res.status(502).json({ error: "No se pudo contactar con OpenSubtitles: " + e.message });
+  }
+});
+
+app.post("/api/subs/download", async (req, res) => {
+  const { apiKey, username, password, fileId } = req.body || {};
+  if (!apiKey || !fileId) return res.status(400).json({ error: "Faltan datos (API key o subtitulo)." });
+  try {
+    let host = "api.opensubtitles.com";
+    let auth = {};
+    if (username && password) {
+      const l = await osLogin(apiKey, username, password);
+      host = l.host;
+      auth = { Authorization: `Bearer ${l.token}` };
+    }
+    const r = await fetch(`https://${host}/api/v1/download`, {
+      method: "POST",
+      headers: osHeaders(apiKey, auth),
+      body: JSON.stringify({ file_id: Number(fileId), sub_format: "srt" }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.link) {
+      return res.status(r.ok ? 502 : r.status).json({ error: d.message || `OpenSubtitles respondio ${r.status}`, remaining: d.remaining });
+    }
+    const f = await fetch(d.link, { headers: { "User-Agent": OS_UA } });
+    if (!f.ok) return res.status(502).json({ error: "No se pudo bajar el archivo de subtitulos." });
+    const text = decodeText(Buffer.from(await f.arrayBuffer()));
+    res.json({ vtt: srtToVtt(text), remaining: d.remaining, fileName: d.file_name });
+  } catch (e) {
+    res.status(e.status || 502).json({ error: e.message });
+  }
+});
+
 const toProxy = (kind, absoluteUrl) => `/proxy/${kind}?url=${encodeURIComponent(absoluteUrl)}`;
 
 function rewriteHls(text, base) {
