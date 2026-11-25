@@ -1,4 +1,4 @@
-<#
+﻿<#
   StreamBox - update-fase4.ps1
   ---------------------------------------------------------------------------
   Aplica las mejoras de la Fase 4 sobre el repo actual:
