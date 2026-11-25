@@ -20,6 +20,8 @@ export interface Channel {
   group?: string;
   tvgId?: string;
   url: string;
+  altUrls?: string[];     // formatos alternativos (p. ej. .ts si .m3u8 falla)
+  seriesId?: string;      // Xtream: id de serie (se abre el detalle en vez de reproducir)
   category: "live" | "movies" | "series" | "other";
   streamType?: "live" | "movie" | "series";
   streamId?: string;

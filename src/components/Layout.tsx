@@ -2,6 +2,7 @@ import { Outlet } from "react-router-dom";
 import { Menu } from "lucide-react";
 import { Sidebar } from "./Sidebar";
 import { Player } from "./Player";
+import { SeriesDetail } from "./SeriesDetail";
 import { useStore } from "../store";
 
 export function Layout() {
@@ -33,6 +34,7 @@ export function Layout() {
           <Outlet />
         </main>
       </div>
+      <SeriesDetail />
     </div>
   );
 }

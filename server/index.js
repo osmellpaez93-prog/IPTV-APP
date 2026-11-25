@@ -121,7 +121,8 @@ function makeHandler(kind) {
 
       current.on("timeout", () => current.destroy(new Error("Upstream timeout")));
       current.on("error", (err) => {
-        const why = err.code || (err.errors && err.errors.map((e) => e.code + " " + e.address + ":" + e.port).join(", ")) || err.message || "desconocido"; console.error("[proxy] fallo:", why);
+        const why = err.code || (err.errors && err.errors.map((e) => e.code + " " + e.address + ":" + e.port).join(", ")) || err.message || "desconocido";
+        console.error("[proxy] fallo:", why);
         fail(502, "No se pudo conectar con el servidor: " + why);
       });
       current.end();

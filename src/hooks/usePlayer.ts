@@ -1,8 +1,7 @@
 /**
  * Logica del reproductor:
- *  - hls.js para .m3u8
- *  - mpegts.js para MPEG-TS (.ts o URLs Xtream sin extension) y FLV
- *  - <video> nativo para mp4 y similares
+ *  - hls.js para .m3u8, mpegts.js para MPEG-TS/FLV, <video> nativo para mp4/mkv
+ *  - En TV en vivo prueba varios formatos del mismo canal (.m3u8 y .ts) antes de rendirse
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
@@ -47,7 +46,6 @@ function detectKind(raw: string): Kind {
   const path = raw.split("?")[0].toLowerCase();
   if (path.endsWith(".m3u8") || /[?&]type=m3u8/i.test(raw)) return "hls";
   if (path.endsWith(".flv")) return "flv";
-  // .ts, o formato Xtream sin extension: /user/pass/123 o /live/user/pass/123
   let pathname = path;
   try {
     pathname = new URL(raw).pathname.toLowerCase();
@@ -56,10 +54,25 @@ function detectKind(raw: string): Kind {
   return "native";
 }
 
+// Lista de URLs a probar, en orden. Para canales en vivo con formato Xtream
+// (usuario/clave/id) se añaden las variantes .m3u8 y .ts.
+function buildCandidates(channel: Channel): string[] {
+  const list = [channel.url, ...(channel.altUrls ?? [])];
+  if (channel.category === "live") {
+    const m = channel.url.match(/^(https?:\/\/[^/]+)\/(?:live\/)?([^/]+)\/([^/]+)\/(\d+)(?:\.(?:ts|m3u8))?(?:\?.*)?$/i);
+    if (m) {
+      const base = `${m[1]}/live/${m[2]}/${m[3]}/${m[4]}`;
+      list.push(`${base}.m3u8`, `${base}.ts`);
+    }
+  }
+  return Array.from(new Set(list.filter(Boolean)));
+}
+
 export function usePlayer(channel: Channel | null) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
   const tsRef = useRef<MpegtsPlayer | null>(null);
+  const fallbackRef = useRef<((msg: string) => void) | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [state, setState] = useState<PlayerState>(INITIAL);
 
@@ -79,24 +92,54 @@ export function usePlayer(channel: Channel | null) {
 
   useEffect(() => () => destroyEngines(), [destroyEngines]);
 
-  // Cargar stream al cambiar de canal (o al reintentar)
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !channel) return;
 
     let cancelled = false;
-    destroyEngines();
-    video.removeAttribute("src");
-    video.load();
-    setState((s) => ({ ...s, loading: true, error: null, audioTracks: [], subtitleTracks: [], currentTime: 0, duration: 0 }));
+    let idx = 0;
+    let timer: number | undefined;
+    const candidates = buildCandidates(channel);
 
-    const fail = (msg: string) => setState((s) => ({ ...s, error: msg, loading: false }));
+    const clearTimer = () => {
+      if (timer) window.clearTimeout(timer);
+      timer = undefined;
+    };
+    const failFinal = (msg: string) => {
+      clearTimer();
+      const tried = candidates.length > 1 ? ` (se probaron ${candidates.length} formatos)` : "";
+      setState((s) => ({ ...s, error: msg + tried, loading: false }));
+    };
+    const next = (msg: string) => {
+      if (cancelled) return;
+      clearTimer();
+      if (idx + 1 < candidates.length) {
+        idx++;
+        start();
+      } else {
+        failFinal(msg);
+      }
+    };
+    fallbackRef.current = next;
 
-    (async () => {
+    const onPlaying = () => clearTimer();
+    video.addEventListener("playing", onPlaying);
+
+    const start = async () => {
+      destroyEngines();
+      video.removeAttribute("src");
+      video.load();
+      setState((s) => ({ ...s, loading: true, error: null, audioTracks: [], subtitleTracks: [], currentTime: 0, duration: 0 }));
+
       try {
-        const kind = detectKind(channel.url);
-        const url = await proxify(channel.url, "stream");
+        const raw = candidates[idx];
+        const kind = detectKind(raw);
+        const url = await proxify(raw, "stream");
         if (cancelled) return;
+
+        if (channel.category === "live") {
+          timer = window.setTimeout(() => next("El canal no responde"), 15000);
+        }
 
         if (kind === "hls") {
           if (Hls.isSupported()) {
@@ -114,21 +157,21 @@ export function usePlayer(channel: Channel | null) {
             });
             hls.on(Hls.Events.ERROR, (_e, data) => {
               if (!data.fatal) return;
-              if (data.type === Hls.ErrorTypes.NETWORK_ERROR && retries < 3) {
+              if (data.type === Hls.ErrorTypes.NETWORK_ERROR && retries < 2) {
                 retries++;
                 hls.startLoad();
-              } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR && retries < 3) {
+              } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR && retries < 2) {
                 retries++;
                 hls.recoverMediaError();
               } else {
-                fail(`Error HLS: ${data.details}`);
+                next(`Error HLS: ${data.details}`);
               }
             });
           } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
             video.src = url;
             video.play().catch(() => {});
           } else {
-            fail("HLS no soportado en este navegador");
+            next("HLS no soportado en este navegador");
           }
         } else if (kind === "ts" || kind === "flv") {
           if (mpegts.isSupported()) {
@@ -139,7 +182,9 @@ export function usePlayer(channel: Channel | null) {
             tsRef.current = player;
             player.attachMediaElement(video);
             player.load();
-            player.on(mpegts.Events.ERROR, (_type: string, detail: string) => fail(`Error TS/FLV: ${detail}`));
+            player.on(mpegts.Events.ERROR, (_type: string, detail: string, info: any) =>
+              next(`Error TS/FLV: ${detail}${info?.code ? ` (HTTP ${info.code})` : ""}${info?.msg ? ` - ${info.msg}` : ""}`)
+            );
             video.play().catch(() => {});
           } else {
             video.src = url;
@@ -150,12 +195,17 @@ export function usePlayer(channel: Channel | null) {
           video.play().catch(() => {});
         }
       } catch (e: any) {
-        fail(e?.message || "Error al cargar el stream");
+        next(e?.message || "Error al cargar el stream");
       }
-    })();
+    };
+
+    start();
 
     return () => {
       cancelled = true;
+      clearTimer();
+      video.removeEventListener("playing", onPlaying);
+      fallbackRef.current = null;
     };
   }, [channel?.id, reloadKey]);
 
@@ -173,7 +223,8 @@ export function usePlayer(channel: Channel | null) {
     const onVolume = () => setState((s) => ({ ...s, volume: video.volume, muted: video.muted }));
     const onError = () => {
       if (!video.getAttribute("src") && !hlsRef.current && !tsRef.current) return;
-      setState((s) => ({ ...s, error: "Error de reproducción", loading: false }));
+      if (fallbackRef.current) fallbackRef.current("Error de reproducción");
+      else setState((s) => ({ ...s, error: "Error de reproducción", loading: false }));
     };
 
     video.addEventListener("play", onPlay);
