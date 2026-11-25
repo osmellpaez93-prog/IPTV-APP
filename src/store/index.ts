@@ -11,8 +11,13 @@ interface UIState {
   setActivePlaylistId: (id: string | null) => void;
 
   nowPlaying: Channel | null;
-  // Si el elemento es una serie (seriesId), abre su detalle en lugar de reproducir
   setNowPlaying: (c: Channel | null) => void;
+
+  /** Cola de zapping: la lista filtrada desde la que se lanzo el canal. */
+  queue: Channel[];
+  play: (c: Channel, list?: Channel[]) => void;
+  zap: (delta: number) => void;
+  zapTo: (index: number) => void;
 
   openSeries: Channel | null;
   closeSeries: () => void;
@@ -20,7 +25,7 @@ interface UIState {
 
 export const useStore = create<UIState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       sidebarOpen: false,
       setSidebarOpen: (v) => set({ sidebarOpen: v }),
       toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
@@ -29,7 +34,30 @@ export const useStore = create<UIState>()(
       setActivePlaylistId: (id) => set({ activePlaylistId: id }),
 
       nowPlaying: null,
-      setNowPlaying: (c) => set(c && c.seriesId ? { openSeries: c } : { nowPlaying: c }),
+      queue: [],
+      setNowPlaying: (c) =>
+        set((s) => {
+          if (c && c.seriesId) return { openSeries: c };
+          if (!c) return { nowPlaying: null };
+          const inQueue = s.queue.some((x) => x.id === c.id);
+          return { nowPlaying: c, queue: inQueue ? s.queue : [c] };
+        }),
+
+      play: (c, list) => set({ nowPlaying: c, queue: list && list.length ? list : [c] }),
+
+      zap: (delta) => {
+        const { queue, nowPlaying } = get();
+        if (!nowPlaying || queue.length < 2) return;
+        const i = queue.findIndex((x) => x.id === nowPlaying.id);
+        if (i < 0) return;
+        const n = (i + delta + queue.length) % queue.length;
+        set({ nowPlaying: queue[n] });
+      },
+
+      zapTo: (index) => {
+        const { queue } = get();
+        if (index >= 0 && index < queue.length) set({ nowPlaying: queue[index] });
+      },
 
       openSeries: null,
       closeSeries: () => set({ openSeries: null }),
