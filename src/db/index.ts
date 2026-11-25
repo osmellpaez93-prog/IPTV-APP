@@ -29,6 +29,10 @@ export const DEFAULT_SETTINGS: Settings = {
   tmdbApiKey: "",
   parentalPin: "",
   hiddenCategories: [],
+  osApiKey: "",
+  osUsername: "",
+  osPassword: "",
+  osLanguages: "es,en",
 };
 
 export async function getSettings(): Promise<Settings> {

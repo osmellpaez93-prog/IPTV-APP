@@ -12,6 +12,10 @@ export function SettingsPage() {
   const [proxyUrl, setProxyUrl] = useState(DEFAULT_SETTINGS.proxyUrl);
   const [tmdbApiKey, setTmdbApiKey] = useState("");
   const [parentalPin, setParentalPin] = useState("");
+  const [osApiKey, setOsApiKey] = useState("");
+  const [osUsername, setOsUsername] = useState("");
+  const [osPassword, setOsPassword] = useState("");
+  const [osLanguages, setOsLanguages] = useState("es,en");
   const [loaded, setLoaded] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
@@ -23,6 +27,10 @@ export function SettingsPage() {
       setProxyUrl(s.proxyUrl);
       setTmdbApiKey(s.tmdbApiKey);
       setParentalPin(s.parentalPin);
+      setOsApiKey(s.osApiKey);
+      setOsUsername(s.osUsername);
+      setOsPassword(s.osPassword);
+      setOsLanguages(s.osLanguages);
       setLoaded(true);
     });
     return () => clearTimeout(timer.current);
@@ -40,6 +48,10 @@ export function SettingsPage() {
       proxyUrl: proxyUrl.trim() || DEFAULT_SETTINGS.proxyUrl,
       tmdbApiKey: tmdbApiKey.trim(),
       parentalPin,
+      osApiKey: osApiKey.trim(),
+      osUsername: osUsername.trim(),
+      osPassword,
+      osLanguages: osLanguages.trim() || "es,en",
     });
     setSaved(true);
     clearTimeout(timer.current);
@@ -110,6 +122,32 @@ export function SettingsPage() {
             autoComplete="off"
           />
         </label>
+
+        <div className="pt-2 border-t border-white/5 space-y-3">
+          <h3 className="font-semibold text-sm">Subtítulos (OpenSubtitles)</h3>
+          <p className="text-xs text-ink-dim">
+            Crea una cuenta gratis en opensubtitles.com y genera una API key en la sección de API/consumers. Usuario y contraseña
+            hacen falta para descargar; la cuota diaria depende de tu cuenta.
+          </p>
+          <label className="block space-y-1">
+            <span className="text-xs text-ink-muted">API key</span>
+            <input type="password" value={osApiKey} onChange={(e) => setOsApiKey(e.target.value)} className={inputClass} autoComplete="off" />
+          </label>
+          <div className="grid md:grid-cols-2 gap-3">
+            <label className="block space-y-1">
+              <span className="text-xs text-ink-muted">Usuario</span>
+              <input value={osUsername} onChange={(e) => setOsUsername(e.target.value)} className={inputClass} autoComplete="off" />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs text-ink-muted">Contraseña</span>
+              <input type="password" value={osPassword} onChange={(e) => setOsPassword(e.target.value)} className={inputClass} autoComplete="off" />
+            </label>
+          </div>
+          <label className="block space-y-1">
+            <span className="text-xs text-ink-muted">Idiomas preferidos (códigos separados por coma)</span>
+            <input value={osLanguages} onChange={(e) => setOsLanguages(e.target.value)} placeholder="es,en" className={inputClass} />
+          </label>
+        </div>
 
         {error && <p className="text-sm text-brand">{error}</p>}
 

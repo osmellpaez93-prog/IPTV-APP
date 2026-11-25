@@ -50,4 +50,8 @@ export interface Settings {
   tmdbApiKey: string;
   parentalPin: string;
   hiddenCategories: string[];
+  osApiKey: string;       // OpenSubtitles
+  osUsername: string;
+  osPassword: string;
+  osLanguages: string;    // p. ej. "es,en"
 }

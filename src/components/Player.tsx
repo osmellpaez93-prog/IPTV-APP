@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { clsx } from "clsx";
 import { usePlayer } from "../hooks/usePlayer";
+import { SubtitleDialog } from "./SubtitleDialog";
 import type { Channel } from "../types";
 
 interface Props {
@@ -26,6 +27,7 @@ export function Player({ channel, onClose }: Props) {
   const [fullscreen, setFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [showMenu, setShowMenu] = useState(false);
+  const [showSubs, setShowSubs] = useState(false);
   const hideTimer = useRef<number | null>(null);
 
   // Auto-ocultar controles mientras se reproduce
@@ -121,6 +123,8 @@ export function Player({ channel, onClose }: Props) {
         }}
         onDoubleClick={toggleFullscreen}
       />
+
+      {showSubs && <SubtitleDialog channel={channel} state={state} actions={actions} onClose={() => setShowSubs(false)} />}
 
       {state.loading && !state.error && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/40 pointer-events-none">
@@ -249,6 +253,30 @@ export function Player({ channel, onClose }: Props) {
                         </button>
                         {state.subtitleTracks.map((t) => (
                           <button key={t.id} onClick={() => actions.setSubtitleTrack(t.id)} className={optBtn(state.activeSubtitle === t.id)}>
+                            {t.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <button
+                    onClick={() => {
+                      setShowSubs(true);
+                      setShowMenu(false);
+                    }}
+                    className={optBtn(false) + " w-full"}
+                  >
+                    Buscar / cargar subtítulos...
+                  </button>
+                  {state.extSubs.length > 0 && (
+                    <div>
+                      <p className="text-xs text-ink-muted mb-1">Subtítulos añadidos</p>
+                      <div className="flex flex-col gap-1">
+                        <button onClick={() => actions.setExtSubtitle(null)} className={optBtn(state.activeExtSub === null)}>
+                          Desactivados
+                        </button>
+                        {state.extSubs.map((t) => (
+                          <button key={t.id} onClick={() => actions.setExtSubtitle(t.id)} className={optBtn(state.activeExtSub === t.id)}>
                             {t.label}
                           </button>
                         ))}

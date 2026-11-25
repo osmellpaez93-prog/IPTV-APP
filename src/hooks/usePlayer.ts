@@ -25,6 +25,9 @@ export interface PlayerState {
   subtitleTracks: { id: number; label: string }[];
   activeAudio: number;
   activeSubtitle: number;
+  extSubs: { id: string; label: string }[];
+  activeExtSub: string | null;
+  subOffset: number;
 }
 
 const INITIAL: PlayerState = {
@@ -40,6 +43,9 @@ const INITIAL: PlayerState = {
   subtitleTracks: [],
   activeAudio: -1,
   activeSubtitle: -1,
+  extSubs: [],
+  activeExtSub: null,
+  subOffset: 0,
 };
 
 function detectKind(raw: string): Kind {
@@ -73,6 +79,7 @@ export function usePlayer(channel: Channel | null) {
   const hlsRef = useRef<Hls | null>(null);
   const tsRef = useRef<MpegtsPlayer | null>(null);
   const fallbackRef = useRef<((msg: string) => void) | null>(null);
+  const extTracksRef = useRef<{ id: string; el: HTMLTrackElement; url: string; offset: number }[]>([]);
   const [reloadKey, setReloadKey] = useState(0);
   const [state, setState] = useState<PlayerState>(INITIAL);
 
@@ -90,13 +97,31 @@ export function usePlayer(channel: Channel | null) {
     }
   }, []);
 
-  useEffect(() => () => destroyEngines(), [destroyEngines]);
+  const clearExtSubs = useCallback(() => {
+    for (const t of extTracksRef.current) {
+      try {
+        t.el.remove();
+        URL.revokeObjectURL(t.url);
+      } catch {}
+    }
+    extTracksRef.current = [];
+    setState((s) => ({ ...s, extSubs: [], activeExtSub: null, subOffset: 0 }));
+  }, []);
+
+  useEffect(
+    () => () => {
+      destroyEngines();
+      clearExtSubs();
+    },
+    [destroyEngines, clearExtSubs]
+  );
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !channel) return;
 
     let cancelled = false;
+    clearExtSubs();
     let idx = 0;
     let timer: number | undefined;
     const candidates = buildCandidates(channel);
@@ -288,6 +313,44 @@ export function usePlayer(channel: Channel | null) {
         if (document.pictureInPictureElement) await document.exitPictureInPicture();
         else if (v.requestPictureInPicture) await v.requestPictureInPicture();
       } catch {}
+    },
+    // Subtitulos externos (OpenSubtitles o archivo local), en formato WebVTT
+    addSubtitle: (label: string, vtt: string) => {
+      const v = videoRef.current;
+      if (!v) return;
+      for (const t of extTracksRef.current) t.el.track.mode = "disabled";
+      Array.from(v.textTracks).forEach((t) => {
+        if (t.mode === "showing") t.mode = "disabled";
+      });
+      const url = URL.createObjectURL(new Blob([vtt], { type: "text/vtt" }));
+      const el = document.createElement("track");
+      el.kind = "subtitles";
+      el.label = label;
+      el.src = url;
+      el.default = true;
+      v.appendChild(el);
+      el.track.mode = "showing";
+      const id = String(Date.now()) + Math.random().toString(36).slice(2, 5);
+      extTracksRef.current.push({ id, el, url, offset: 0 });
+      setState((s) => ({ ...s, extSubs: [...s.extSubs, { id, label }], activeExtSub: id, subOffset: 0, activeSubtitle: -1 }));
+    },
+    setExtSubtitle: (id: string | null) => {
+      for (const t of extTracksRef.current) t.el.track.mode = t.id === id ? "showing" : "disabled";
+      const cur = extTracksRef.current.find((t) => t.id === id);
+      setState((s) => ({ ...s, activeExtSub: id, subOffset: cur?.offset ?? 0 }));
+    },
+    // Adelanta o atrasa los subtitulos (segundos, p. ej. +0.5 / -0.5)
+    shiftSubtitles: (delta: number) => {
+      const cur = extTracksRef.current.find((t) => t.id === state.activeExtSub);
+      if (!cur) return;
+      const cues = cur.el.track.cues;
+      if (!cues) return;
+      for (const c of Array.from(cues)) {
+        c.startTime = Math.max(0, c.startTime + delta);
+        c.endTime = Math.max(0.05, c.endTime + delta);
+      }
+      cur.offset = Math.round((cur.offset + delta) * 10) / 10;
+      setState((s) => ({ ...s, subOffset: cur.offset }));
     },
     retry: () => setReloadKey((k) => k + 1),
   };
