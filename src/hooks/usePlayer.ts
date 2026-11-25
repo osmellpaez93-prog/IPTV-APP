@@ -340,7 +340,7 @@ export function usePlayer(channel: Channel | null) {
       void db.history.put({
         id: ch.id, position: p, duration: d, updatedAt: Date.now(),
         item: ch,
-        playlistId: ch.playlistId, category: ch.category,
+        
       }).catch(() => {});
     };
     if (!isLive) saver = window.setInterval(persist, 5000);
