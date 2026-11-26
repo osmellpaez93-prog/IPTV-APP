@@ -1,17 +1,11 @@
 /**
- * URLs del proxy.
- *
- * CLAVE: siempre ABSOLUTAS. mpegts.js (y cualquier Worker creado desde un Blob)
- * hace fetch dentro de un WorkerGlobalScope cuyo documento base es "blob:".
- * Una ruta relativa como "/proxy/stream?url=..." no se puede resolver ahi y
- * revienta con: "Failed to execute 'fetch' on 'WorkerGlobalScope':
- * Failed to parse URL from /proxy/stream?...".
+ * URLs del proxy. SIEMPRE absolutas: los Workers (hls.js/mpegts.js) y las
+ * paginas HTTPS no resuelven bien rutas relativas segun contexto.
  */
 import { getSettings } from "../db";
 
-export type ProxyKind = "playlist" | "stream" | "image" | "transcode";
+export type ProxyKind = "playlist" | "stream" | "image";
 
-// Base sincrona para helpers que no pueden ser async (imgUrl).
 let baseSync = "/proxy";
 
 export function toAbsolute(u: string): string {
@@ -25,20 +19,15 @@ export function toAbsolute(u: string): string {
   }
 }
 
-export async function proxyBase(): Promise<string> {
-  const s = await getSettings();
-  baseSync = (s.proxyUrl || "/proxy").replace(/\/+$/, "") || "/proxy";
-  return baseSync;
-}
-
 export async function proxify(url: string, kind: ProxyKind = "stream"): Promise<string> {
   if (!url) return url;
-  const base = await proxyBase();
-  if (url.startsWith(base + "/")) return toAbsolute(url);
-  return toAbsolute(`${base}/${kind}?url=${encodeURIComponent(url)}`);
+  const s = await getSettings();
+  baseSync = (s.proxyUrl || "/proxy").replace(/\/+$/, "") || "/proxy";
+  if (url.startsWith(baseSync + "/")) return toAbsolute(url);
+  return toAbsolute(`${baseSync}/${kind}?url=${encodeURIComponent(url)}`);
 }
 
-/** Logos: los http pasan por el proxy (mixed content + hotlink protection). */
+/** Logos http:// no cargan en HTTPS (mixed content): los pasamos por el proxy. */
 export function imgUrl(url?: string): string | undefined {
   if (!url) return undefined;
   if (/^http:\/\//i.test(url)) {

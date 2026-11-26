@@ -2,7 +2,9 @@
  * Logica del reproductor:
  *  - hls.js para .m3u8, mpegts.js para MPEG-TS/FLV, <video> nativo para mp4/mkv
  *  - En TV en vivo prueba varios formatos del mismo canal (.m3u8 y .ts) antes de rendirse
- *  - Detecta codecs no soportados en MSE (AC-3, DTS, TrueHD) y fuerza fallback
+ *  - mpegts.js SIN worker: evita el bug del Blob-URL y el bucle de appendBuffer
+ *    cuando el codec de audio no esta soportado (ver services/mseGuard.ts)
+ *  - Detecta AC-3/DTS y da un mensaje claro en lugar de errores cruptos
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
@@ -12,9 +14,6 @@ import { proxify } from "../services/proxy";
 
 type MpegtsPlayer = ReturnType<typeof mpegts.createPlayer>;
 type Kind = "hls" | "ts" | "flv" | "native";
-
-// Codecs de audio NO soportados en MSE (Chrome/Edge/Firefox sin flags)
-const UNSUPPORTED_AUDIO_CODECS = ["ac-3", "ec-3", "dtsc", "dtse", "dtsl", "mlpa"];
 
 export interface PlayerState {
   loading: boolean;
@@ -64,19 +63,30 @@ function detectKind(raw: string): Kind {
   return "native";
 }
 
-// Lista de URLs a probar, en orden. .m3u8 PRIMERO (mejor compatibilidad MSE).
+// .m3u8 PRIMERO (mejor compatibilidad), luego .ts y la URL original.
 function buildCandidates(channel: Channel): string[] {
   const list: string[] = [];
   if (channel.category === "live") {
-    const m = channel.url.match(/^(https?:\/\/[^/]+)\/(?:live\/)?([^/]+)\/([^/]+)\/(\d+)(?:\.(?:ts|m3u8))?(?:\?.*)?$/i);
+    const m = channel.url.match(
+      /^(https?:\/\/[^/]+)\/(?:live\/)?([^/]+)\/([^/]+)\/(\d+)(?:\.(?:ts|m3u8))?(?:\?.*)?$/i
+    );
     if (m) {
       const base = `${m[1]}/live/${m[2]}/${m[3]}/${m[4]}`;
       list.push(`${base}.m3u8`, `${base}.ts`);
     }
   }
-  // URL original y alternativas al final (por si acaso)
   list.push(channel.url, ...(channel.altUrls ?? []));
   return Array.from(new Set(list.filter(Boolean)));
+}
+
+// El guard lanza "Audio codec no soportado por el navegador: audio/mp4;codecs=ac-3"
+// Detectamos aqui esos codecs para dar un mensaje entendible al usuario.
+const CODEC_RE = /ac-?3|ec-?3|eac-?3|dtsc|dtse|dtsl|mlpa|ac-?4/i;
+function friendlyCodecError(msg: string): string | null {
+  const m = msg.match(CODEC_RE);
+  if (!m) return null;
+  const codec = m[0].toUpperCase().replace("EAC", "E-AC").replace("AC3", "AC-3").replace("AC4", "AC-4");
+  return `Este canal usa audio Dolby/DTS (${codec}) que tu navegador no puede decodificar. Prueba en Firefox, o usa un navegador con soporte Dolby (Edge + Dolby Access).`;
 }
 
 export function usePlayer(channel: Channel | null) {
@@ -102,22 +112,23 @@ export function usePlayer(channel: Channel | null) {
       } catch {}
       tsRef.current = null;
     }
-    // Limpieza del MediaSource: si quedÃ³ en estado "ended" o roto, resetear
+    // Reset completo del <video>: si el MediaSource quedo roto por un codec
+    // no soportado, esto limpia el estado para el siguiente intento.
     const video = videoRef.current;
-    if (video && video.srcObject) {
+    if (video) {
       try {
-        const ms = video.srcObject as MediaSource;
-        if (ms.readyState === "open") {
-          try { ms.endOfStream(); } catch {}
-        }
+        video.removeAttribute("src");
+        video.load();
       } catch {}
-      video.srcObject = null;
     }
   }, []);
 
   const clearExtSubs = useCallback(() => {
     for (const t of extTracksRef.current) {
-      try { t.el.remove(); URL.revokeObjectURL(t.url); } catch {}
+      try {
+        t.el.remove();
+        URL.revokeObjectURL(t.url);
+      } catch {}
     }
     extTracksRef.current = [];
     setState((s) => ({ ...s, extSubs: [], activeExtSub: null, subOffset: 0 }));
@@ -140,21 +151,23 @@ export function usePlayer(channel: Channel | null) {
     let idx = 0;
     let timer: number | undefined;
     const candidates = buildCandidates(channel);
+    const errors: string[] = [];
 
     const clearTimer = () => {
       if (timer) window.clearTimeout(timer);
       timer = undefined;
     };
-
     const failFinal = (msg: string) => {
       clearTimer();
+      // Si algun candidato fallo por codec de audio, ese es el error real.
+      const codecMsg = [...errors, msg].map(friendlyCodecError).find(Boolean);
       const tried = candidates.length > 1 ? ` (se probaron ${candidates.length} formatos)` : "";
-      setState((s) => ({ ...s, error: msg + tried, loading: false }));
+      setState((s) => ({ ...s, error: codecMsg || msg + tried, loading: false }));
     };
-
     const next = (msg: string) => {
       if (cancelled) return;
       clearTimer();
+      errors.push(msg);
       destroyEngines();
       if (idx + 1 < candidates.length) {
         idx++;
@@ -163,7 +176,6 @@ export function usePlayer(channel: Channel | null) {
         failFinal(msg);
       }
     };
-
     fallbackRef.current = next;
 
     const onPlaying = () => clearTimer();
@@ -171,12 +183,15 @@ export function usePlayer(channel: Channel | null) {
 
     const start = async () => {
       destroyEngines();
-      // Reset completo del <video>
-      try {
-        video.removeAttribute("src");
-        video.load();
-      } catch {}
-      setState((s) => ({ ...s, loading: true, error: null, audioTracks: [], subtitleTracks: [], currentTime: 0, duration: 0 }));
+      setState((s) => ({
+        ...s,
+        loading: true,
+        error: null,
+        audioTracks: [],
+        subtitleTracks: [],
+        currentTime: 0,
+        duration: 0,
+      }));
 
       try {
         const raw = candidates[idx];
@@ -221,44 +236,29 @@ export function usePlayer(channel: Channel | null) {
             next("HLS no soportado en este navegador");
           }
         } else if (kind === "ts" || kind === "flv") {
-          if (!mpegts.isSupported()) return next("Este navegador no soporta MPEG-TS");
-          const player = mpegts.createPlayer(
-            { type: kind === "flv" ? "flv" : "mpegts", url, isLive: true },
-            {
-              enableWorker: true,
-              liveBufferLatencyChasing: true,
-              // Importante: no prefetch para evitar bloqueos con AC-3
-              audioPrefetchBuffer: 0,
-            }
-          );
-          tsRef.current = player;
-
-          // Detectar codecs no soportados ANTES de que rompan el MediaSource
-          player.on(mpegts.Events.MEDIA_INFO, (mediaInfo: any) => {
-            if (cancelled) return;
-            const audioCodec = mediaInfo?.audioCodec?.toLowerCase() || "";
-            if (UNSUPPORTED_AUDIO_CODECS.some((c) => audioCodec.includes(c))) {
-              console.warn(`[StreamBox] Codec de audio no soportado en MSE: ${audioCodec}. Probando siguiente candidato...`);
-              next(`Audio ${audioCodec.toUpperCase()} no soportado en este navegador. Probando HLS...`);
-            }
-          });
-
-          player.attachMediaElement(video);
-          player.load();
-          player.on(mpegts.Events.ERROR, (_type: string, detail: string, info: any) => {
-            const http = info?.code ? ` (HTTP ${info.code})` : "";
-            const msg = info?.msg ? ` - ${info.msg}` : "";
-            next(`Error TS/FLV: ${detail}${http}${msg}`);
-          });
-          // Manejar errores de MediaSource (appendBuffer fallido)
-          player.on(mpegts.Events.MEDIA_SOURCE_END, () => {
-            if (cancelled) return;
-            // Si el MediaSource terminÃ³ pero no hay error visible, forzar retry
-            if (video.error) {
-              next("El stream terminÃ³ con error. Probando siguiente formato...");
-            }
-          });
-          video.play().catch(() => {});
+          if (mpegts.isSupported()) {
+            const player = mpegts.createPlayer(
+              { type: kind === "flv" ? "flv" : "mpegts", url, isLive: true },
+              {
+                // Worker OFF: el worker hace fetch desde un Blob-URL (origin blob:)
+                // y ademas, si el codec de audio falla, entra en bucle de appendBuffer.
+                // En hilo principal el guard de MSE aborta limpio y podemos fallback.
+                enableWorker: false,
+                liveBufferLatencyChasing: true,
+                stashInitialSize: 384,
+              }
+            );
+            tsRef.current = player;
+            player.attachMediaElement(video);
+            player.load();
+            player.on(mpegts.Events.ERROR, (_type: string, detail: string, info: any) =>
+              next(`Error TS/FLV: ${detail}${info?.code ? ` (HTTP ${info.code})` : ""}${info?.msg ? ` - ${info.msg}` : ""}`)
+            );
+            video.play().catch(() => {});
+          } else {
+            video.src = url;
+            video.play().catch(() => {});
+          }
         } else {
           video.src = url;
           video.play().catch(() => {});
