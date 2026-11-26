@@ -6,6 +6,7 @@ import { db } from "../db";
 import { useStore } from "../store";
 import { useFavorites } from "../hooks/useFavorites";
 import { ChannelGrid } from "../components/ChannelGrid";
+import { PosterGrid } from "../components/PosterGrid";
 import { ChannelCardSkeleton } from "../components/SkeletonLoader";
 import type { Channel } from "../types";
 
@@ -35,7 +36,7 @@ export function CategoryPage({ category, title, placeholder, noun }: Props) {
 
   const groups = useMemo(
     () =>
-      Array.from(new Set((items ?? []).map((c) => c.group || "Sin categoria")))
+      Array.from(new Set((items ?? []).map((c) => c.group || "Sin categoría")))
         .filter((g) => !hiddenGroups.includes(g))
         .sort((a, b) => a.localeCompare(b)),
     [items, hiddenGroups]
@@ -46,8 +47,8 @@ export function CategoryPage({ category, title, placeholder, noun }: Props) {
     const q = deferredQuery.trim().toLowerCase();
     return (items ?? []).filter(
       (c) =>
-        !hiddenGroups.includes(c.group || "Sin categoria") &&
-        (activeGroup === "Todas" || (c.group || "Sin categoria") === activeGroup) &&
+        !hiddenGroups.includes(c.group || "Sin categoría") &&
+        (activeGroup === "Todas" || (c.group || "Sin categoría") === activeGroup) &&
         (!q || c.name.toLowerCase().includes(q))
     );
   }, [items, activeGroup, deferredQuery, hiddenGroups]);
@@ -63,11 +64,13 @@ export function CategoryPage({ category, title, placeholder, noun }: Props) {
     );
   }
 
+  const poster = category === "movies" || category === "series";
+
   return (
     <div className="animate-fade-in space-y-5">
       <div>
         <h1 className="text-2xl font-bold md:text-3xl">{title}</h1>
-        <p className="mt-1 text-ink-muted">{items ? `${filtered.length.toLocaleString()} ${noun}` : "Cargando..."}</p>
+        <p className="mt-1 text-ink-muted">{items ? `${filtered.length.toLocaleString()} ${noun}` : "Cargando…"}</p>
       </div>
 
       <div className="flex flex-col gap-3 md:flex-row">
@@ -85,23 +88,17 @@ export function CategoryPage({ category, title, placeholder, noun }: Props) {
           onChange={(e) => setGroup(e.target.value)}
           className="rounded-lg border border-bg-line bg-bg-surface px-3 py-2 focus:border-signal focus:outline-none"
         >
-          <option value="Todas">Todas las categorias</option>
+          <option value="Todas">Todas las categorías</option>
           {groups.map((g) => <option key={g} value={g}>{g}</option>)}
         </select>
       </div>
 
       {!items ? (
-        <div className="grid gap-2 md:grid-cols-2">
-          {Array.from({ length: 8 }).map((_, i) => <ChannelCardSkeleton key={i} />)}
-        </div>
+        <div className="grid gap-2 md:grid-cols-2">{Array.from({ length: 8 }).map((_, i) => <ChannelCardSkeleton key={i} />)}</div>
+      ) : poster ? (
+        <PosterGrid channels={filtered} favSet={favSet} onToggleFavorite={toggle} onPlay={onPlay} emptyText={`No hay ${noun} con ese filtro.`} />
       ) : (
-        <ChannelGrid
-          channels={filtered}
-          favSet={favSet}
-          onToggleFavorite={toggle}
-          onPlay={onPlay}
-          emptyText={`No hay ${noun} con ese filtro.`}
-        />
+        <ChannelGrid channels={filtered} favSet={favSet} onToggleFavorite={toggle} onPlay={onPlay} emptyText={`No hay ${noun} con ese filtro.`} />
       )}
     </div>
   );

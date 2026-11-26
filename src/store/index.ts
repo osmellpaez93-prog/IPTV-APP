@@ -9,11 +9,7 @@ export type Density = "compact" | "normal" | "comfy";
 export type Aspect = "contain" | "cover" | "fill";
 export type Accent = "signal" | "brand" | "gold" | "iris" | "lime";
 
-export interface MiniPrefs {
-  size: MiniSize;
-  corner: Corner;
-  opacity: number;
-}
+export interface MiniPrefs { size: MiniSize; corner: Corner; opacity: number }
 export interface UIPrefs {
   scale: number;
   density: Density;
@@ -22,29 +18,10 @@ export interface UIPrefs {
   accent: Accent;
   hiddenGroups: string[];
 }
-export interface VideoPrefs {
-  brightness: number;
-  contrast: number;
-  saturate: number;
-  zoom: number;
-  aspect: Aspect;
-}
+export interface VideoPrefs { brightness: number; contrast: number; saturate: number; zoom: number; aspect: Aspect }
 
-export const DEFAULT_UI: UIPrefs = {
-  scale: 1,
-  density: "normal",
-  columns: 0,
-  posterScale: 1,
-  accent: "signal",
-  hiddenGroups: [],
-};
-export const DEFAULT_VIDEO: VideoPrefs = {
-  brightness: 100,
-  contrast: 100,
-  saturate: 100,
-  zoom: 100,
-  aspect: "contain",
-};
+export const DEFAULT_UI: UIPrefs = { scale: 1, density: "normal", columns: 0, posterScale: 1, accent: "signal", hiddenGroups: [] };
+export const DEFAULT_VIDEO: VideoPrefs = { brightness: 100, contrast: 100, saturate: 100, zoom: 100, aspect: "contain" };
 export const DEFAULT_MINI: MiniPrefs = { size: "m", corner: "br", opacity: 100 };
 
 export const ACCENTS: Record<Accent, { hex: string; soft: string; label: string }> = {
@@ -57,6 +34,9 @@ export const ACCENTS: Record<Accent, { hex: string; soft: string; label: string 
 
 export const ROW_HEIGHT: Record<Density, number> = { compact: 56, normal: 72, comfy: 92 };
 
+const THEATER: ViewMode = "theater";
+const MINI: ViewMode = "mini";
+
 interface UIState {
   sidebarOpen: boolean;
   setSidebarOpen: (v: boolean) => void;
@@ -66,20 +46,23 @@ interface UIState {
   setActivePlaylistId: (id: string | null) => void;
 
   nowPlaying: Channel | null;
+  queue: Channel[];
+  /** Series -> detalle de serie, peliculas -> ficha, resto -> reproduce. */
   setNowPlaying: (c: Channel | null) => void;
   play: (c: Channel, list?: Channel[]) => void;
-
-  queue: Channel[];
+  /** Reproduce directamente (boton Reproducir de la ficha, continuar viendo, panel de canales). */
+  playNow: (c: Channel, list?: Channel[]) => void;
   setQueue: (list: Channel[]) => void;
   zap: (delta: number) => void;
   zapTo: (index: number) => void;
 
   openSeries: Channel | null;
   closeSeries: () => void;
+  openMovie: Channel | null;
+  closeMovie: () => void;
 
   viewMode: ViewMode;
   setViewMode: (m: ViewMode) => void;
-
   mini: MiniPrefs;
   setMini: (patch: Partial<MiniPrefs>) => void;
 
@@ -115,22 +98,36 @@ export const useStore = create<UIState>()(
 
       nowPlaying: null,
       queue: [],
+
+      // Regla de vista: si no habia nada sonando, abre en TEATRO; si ya habia algo, respeta el modo actual.
       setNowPlaying: (c) =>
         set((s) => {
-          if (c && c.seriesId) return { openSeries: c };
-          if (!c) return { nowPlaying: null, viewMode: "mini" };
+          if (!c) return { nowPlaying: null, viewMode: MINI };
+          if (c.seriesId) return { openSeries: c };
+          if (c.category === "movies") return { openMovie: c };
           const inQueue = s.queue.some((x) => x.id === c.id);
-          return { nowPlaying: c, queue: inQueue ? s.queue : [c] };
+          return { nowPlaying: c, queue: inQueue ? s.queue : [c], viewMode: s.nowPlaying ? s.viewMode : THEATER };
         }),
+
       play: (c, list) =>
         set((s) => {
           if (c.seriesId) return { openSeries: c };
+          if (c.category === "movies") return { openMovie: c };
           return {
             nowPlaying: c,
             queue: list && list.length ? list : [c],
-            viewMode: s.viewMode === "full" ? "theater" : s.viewMode,
+            viewMode: s.nowPlaying ? s.viewMode : THEATER,
           };
         }),
+
+      playNow: (c, list) =>
+        set((s) => ({
+          nowPlaying: c,
+          queue: list && list.length ? list : [c],
+          openMovie: null,
+          openSeries: null,
+          viewMode: s.nowPlaying ? s.viewMode : THEATER,
+        })),
 
       setQueue: (list) => set({ queue: list }),
       zap: (delta) => {
@@ -147,10 +144,11 @@ export const useStore = create<UIState>()(
 
       openSeries: null,
       closeSeries: () => set({ openSeries: null }),
+      openMovie: null,
+      closeMovie: () => set({ openMovie: null }),
 
-      viewMode: "mini",
+      viewMode: MINI,
       setViewMode: (m) => set({ viewMode: m }),
-
       mini: DEFAULT_MINI,
       setMini: (patch) => set((s) => ({ mini: { ...s.mini, ...patch } })),
 
@@ -192,12 +190,7 @@ export const useStore = create<UIState>()(
     }),
     {
       name: "streambox-ui",
-      partialize: (s) => ({
-        activePlaylistId: s.activePlaylistId,
-        ui: s.ui,
-        mini: s.mini,
-        video: s.video,
-      }),
+      partialize: (s) => ({ activePlaylistId: s.activePlaylistId, ui: s.ui, mini: s.mini, video: s.video }),
     }
   )
 );

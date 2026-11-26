@@ -20,7 +20,7 @@ interface Props {
 function RailBase({ onClose, onPick, title = "Canales" }: Props) {
   const activePlaylistId = useStore((s) => s.activePlaylistId);
   const nowPlaying = useStore((s) => s.nowPlaying);
-  const play = useStore((s) => s.play);
+  const playNow = useStore((s) => s.playNow);
   const setQueue = useStore((s) => s.setQueue);
   const hiddenGroups = useStore((s) => s.ui.hiddenGroups);
   const category = nowPlaying?.category ?? "live";
@@ -81,7 +81,7 @@ function RailBase({ onClose, onPick, title = "Canales" }: Props) {
     }
   }, [nowPlaying?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const choose = (c: Channel) => { if (onPick) onPick(c); else play(c, filtered); };
+  const choose = (c: Channel) => { if (onPick) onPick(c); else playNow(c, filtered); };
   const slice = filtered.slice(range.start, range.end);
 
   return (

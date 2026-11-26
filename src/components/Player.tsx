@@ -7,6 +7,7 @@ import {
 import { clsx } from "clsx";
 import { usePlayer } from "../hooks/usePlayer";
 import { SubtitleDialog } from "./SubtitleDialog";
+import { NowNext, EpgPanel, EpgMenuButton } from "./Epg";
 import { useStore } from "../store";
 import type { Channel } from "../types";
 
@@ -73,6 +74,7 @@ export function Player({
   const [fs, setFs] = useState(false);
   const [controls, setControls] = useState(true);
   const [subs, setSubs] = useState(false);
+  const [epg, setEpg] = useState(false);
   const [osd, setOsd] = useState<string | null>(null);
 
   const flash = (t: string) => {
@@ -201,6 +203,8 @@ export function Player({
           onDoubleClick={toggleFs}
         />
 
+        {epg && !compact && <EpgPanel channel={channel} onClose={() => setEpg(false)} />}
+
         {subs && !compact && (
           <SubtitleDialog channel={channel} state={state} actions={actions} onClose={() => setSubs(false)} />
         )}
@@ -244,6 +248,7 @@ export function Player({
           )}
           <div className="min-w-0 flex-1">
             <p className={clsx("truncate font-semibold", compact ? "text-xs" : "text-sm")}>{channel.name}</p>
+            {!compact && <NowNext channel={channel} />}
             {!compact && channel.group && <p className="truncate text-[11px] text-ink-muted">{channel.group}</p>}
           </div>
           {!compact && state.duration === 0 && (
@@ -353,6 +358,7 @@ export function Player({
               </span>
             )}
             <div className="flex-1" />
+            <EpgMenuButton channel={channel} onClick={() => setEpg(true)} className="flex items-center gap-1.5 rounded-lg border border-bg-line px-2.5 py-1.5 text-xs hover:bg-bg-raised" />
             <button onClick={() => setSubs(true)} className="flex items-center gap-1.5 rounded-lg border border-bg-line px-2.5 py-1.5 text-xs hover:bg-bg-raised">
               <Subtitles className="h-4 w-4" /> Subtitulos
             </button>

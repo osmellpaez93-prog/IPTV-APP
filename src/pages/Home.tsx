@@ -5,6 +5,7 @@ import { Tv, Film, ListVideo, Plus, Clapperboard, Star, Play } from "lucide-reac
 import { db } from "../db";
 import { useStore } from "../store";
 import { imgUrl } from "../services/proxy";
+import { ContinueWatching } from "../components/ContinueWatching";
 import type { Channel } from "../types";
 
 export function Home() {
@@ -83,6 +84,8 @@ export function Home() {
           </div>
         </div>
       </section>
+
+      <ContinueWatching />
 
       <Row title="Canales en vivo" accent="text-brand" items={vis(data.live)} onPlay={play} scale={posterScale} />
       <Row title="Peliculas" accent="text-gold" items={vis(data.movies)} onPlay={play} scale={posterScale} />

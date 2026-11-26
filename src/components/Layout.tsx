@@ -5,6 +5,7 @@ import { Sidebar } from "./Sidebar";
 import { PlayerDock } from "./PlayerDock";
 import { ViewSettings } from "./ViewSettings";
 import { SeriesDetail } from "./SeriesDetail";
+import { MovieDetail } from "./MovieDetail";
 import { ACCENTS, useStore } from "../store";
 import { useSpatialNav } from "../hooks/useSpatialNav";
 
@@ -27,6 +28,7 @@ export function Layout() {
   const setSettingsOpen = useStore((s) => s.setSettingsOpen);
   const settingsOpen = useStore((s) => s.settingsOpen);
   const openSeries = useStore((s) => s.openSeries);
+  const openMovie = useStore((s) => s.openMovie);
   const ui = useStore((s) => s.ui);
   const multiview = useStore((s) => s.multiview);
   const nowPlaying = useStore((s) => s.nowPlaying);
@@ -118,8 +120,9 @@ export function Layout() {
 
       <PlayerDock />
       <ViewSettings />
-      <div {...(openSeries ? { "data-nav-lock": "series" } : {})}>
+      <div {...(openSeries || openMovie ? { "data-nav-lock": "modal" } : {})}>
         <SeriesDetail />
+        <MovieDetail />
       </div>
     </div>
   );

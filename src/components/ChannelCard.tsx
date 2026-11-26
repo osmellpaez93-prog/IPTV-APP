@@ -4,6 +4,7 @@ import { Star, Play, LayoutGrid } from "lucide-react";
 import type { Channel } from "../types";
 import { imgUrl } from "../services/proxy";
 import { ROW_HEIGHT, useStore } from "../store";
+import { useEpg } from "../hooks/useEpg";
 
 interface Props {
   channel: Channel;
@@ -26,6 +27,8 @@ function CardBase({ channel, isFavorite, onToggleFavorite, onPlay, index, playin
   const density = useStore((s) => s.ui.density);
   const addMultiview = useStore((s) => s.addMultiview);
   const logo = imgUrl(channel.logo);
+  const { current, now } = useEpg(channel.category === "live" ? channel : null, 400);
+  const pct = current ? Math.min(100, Math.max(0, ((now - current.start) / (current.end - current.start)) * 100)) : 0;
   const h = ROW_HEIGHT[density];
   const thumb = density === "compact" ? 36 : density === "comfy" ? 60 : 48;
 
@@ -73,7 +76,7 @@ function CardBase({ channel, isFavorite, onToggleFavorite, onPlay, index, playin
         {density !== "compact" && (
           <p className="mt-0.5 truncate text-xs text-ink-muted">
             {index != null && <span className={clsx("font-mono", TONE[channel.category])}>{index + 1} Â· </span>}
-            {channel.group || "Sin categoria"}
+            {current ? <span className="text-ink">{current.title}</span> : channel.group || "Sin categoria"}
           </p>
         )}
       </div>
@@ -81,6 +84,12 @@ function CardBase({ channel, isFavorite, onToggleFavorite, onPlay, index, playin
       {playing && (
         <span className="hidden items-center gap-1 rounded-full bg-brand/20 px-2 py-0.5 text-[10px] font-bold text-brand sm:flex">
           <span className="h-1.5 w-1.5 animate-live-dot rounded-full bg-brand" /> AL AIRE
+        </span>
+      )}
+
+      {current && (
+        <span className="absolute inset-x-0 bottom-0 h-[3px] bg-white/5">
+          <span className="block h-full bg-brand/80" style={{ width: `${pct}%` }} />
         </span>
       )}
 

@@ -10,10 +10,14 @@ export default {
           DEFAULT: "#0a0e1a",
           surface: "#111a2e",
           raised: "#18233c",
+          soft: "#111a2e",
+          card: "#111a2e",
+          hover: "#18233c",
           line: "#26314f",
         },
         brand: { DEFAULT: "#e50914", hover: "#ff2430", soft: "#ff6b70" },
         signal: { DEFAULT: "#22d3ee", soft: "#7ee7f7", deep: "#0e7490" },
+        aqua: { DEFAULT: "#22d3ee", soft: "#7ee7f7" },
         gold: { DEFAULT: "#ffb020", soft: "#ffd27a" },
         iris: { DEFAULT: "#8b5cf6", soft: "#b79bff" },
         lime: { DEFAULT: "#a3e635", soft: "#d0f58a" },
@@ -26,6 +30,7 @@ export default {
       fontFamily: { sans: ['"Inter"', "system-ui", "sans-serif"] },
       boxShadow: {
         dock: "0 24px 60px -18px rgba(0,0,0,.9), 0 0 0 1px rgba(38,49,79,.9)",
+        card: "0 10px 30px -12px rgba(0,0,0,.85)",
         glow: "0 0 32px -6px var(--accent-glow)",
       },
       animation: {
