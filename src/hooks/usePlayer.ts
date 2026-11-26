@@ -2,7 +2,7 @@
  * Logica del reproductor:
  *  - hls.js para .m3u8, mpegts.js para MPEG-TS/FLV, <video> nativo para mp4/mkv
  *  - En TV en vivo prueba varios formatos del mismo canal (.m3u8 y .ts) antes de rendirse
- *  - Detecta codecs no soportados en MSE (AC-3, E-AC-3, DTS) y fuerza fallback
+ *  - Detecta codecs no soportados en MSE (AC-3, DTS, TrueHD) y fuerza fallback
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
@@ -14,7 +14,7 @@ type MpegtsPlayer = ReturnType<typeof mpegts.createPlayer>;
 type Kind = "hls" | "ts" | "flv" | "native";
 
 // Codecs de audio NO soportados en MSE (Chrome/Edge/Firefox sin flags)
-const UNSUPPORTED_AUDIO = ["ac-3", "ec-3", "dtsc", "dtse", "dtsl", "mlpa"];
+const UNSUPPORTED_AUDIO_CODECS = ["ac-3", "ec-3", "dtsc", "dtse", "dtsl", "mlpa"];
 
 export interface PlayerState {
   loading: boolean;
@@ -57,12 +57,14 @@ function detectKind(raw: string): Kind {
   if (path.endsWith(".m3u8") || /[?&]type=m3u8/i.test(raw)) return "hls";
   if (path.endsWith(".flv")) return "flv";
   let pathname = path;
-  try { pathname = new URL(raw).pathname.toLowerCase(); } catch {}
+  try {
+    pathname = new URL(raw).pathname.toLowerCase();
+  } catch {}
   if (pathname.endsWith(".ts") || /^\/(live\/)?[^/]+\/[^/]+\/\d+$/.test(pathname)) return "ts";
   return "native";
 }
 
-// .m3u8 PRIMERO (mejor compatibilidad MSE), .ts despues
+// Lista de URLs a probar, en orden. .m3u8 PRIMERO (mejor compatibilidad MSE).
 function buildCandidates(channel: Channel): string[] {
   const list: string[] = [];
   if (channel.category === "live") {
@@ -72,6 +74,7 @@ function buildCandidates(channel: Channel): string[] {
       list.push(`${base}.m3u8`, `${base}.ts`);
     }
   }
+  // URL original y alternativas al final (por si acaso)
   list.push(channel.url, ...(channel.altUrls ?? []));
   return Array.from(new Set(list.filter(Boolean)));
 }
@@ -86,30 +89,47 @@ export function usePlayer(channel: Channel | null) {
   const [state, setState] = useState<PlayerState>(INITIAL);
 
   const destroyEngines = useCallback(() => {
-    if (hlsRef.current) { try { hlsRef.current.destroy(); } catch {} hlsRef.current = null; }
+    if (hlsRef.current) {
+      try { hlsRef.current.destroy(); } catch {}
+      hlsRef.current = null;
+    }
     if (tsRef.current) {
-      try { tsRef.current.pause(); tsRef.current.unload(); tsRef.current.detachMediaElement(); tsRef.current.destroy(); }
-      catch {}
+      try {
+        tsRef.current.pause();
+        tsRef.current.unload();
+        tsRef.current.detachMediaElement();
+        tsRef.current.destroy();
+      } catch {}
       tsRef.current = null;
     }
-    // Limpieza del MediaSource roto
+    // Limpieza del MediaSource: si quedÃ³ en estado "ended" o roto, resetear
     const video = videoRef.current;
     if (video && video.srcObject) {
       try {
         const ms = video.srcObject as MediaSource;
-        if (ms.readyState === "open") { try { ms.endOfStream(); } catch {} }
+        if (ms.readyState === "open") {
+          try { ms.endOfStream(); } catch {}
+        }
       } catch {}
       video.srcObject = null;
     }
   }, []);
 
   const clearExtSubs = useCallback(() => {
-    for (const t of extTracksRef.current) { try { t.el.remove(); URL.revokeObjectURL(t.url); } catch {} }
+    for (const t of extTracksRef.current) {
+      try { t.el.remove(); URL.revokeObjectURL(t.url); } catch {}
+    }
     extTracksRef.current = [];
     setState((s) => ({ ...s, extSubs: [], activeExtSub: null, subOffset: 0 }));
   }, []);
 
-  useEffect(() => () => { destroyEngines(); clearExtSubs(); }, [destroyEngines, clearExtSubs]);
+  useEffect(
+    () => () => {
+      destroyEngines();
+      clearExtSubs();
+    },
+    [destroyEngines, clearExtSubs]
+  );
 
   useEffect(() => {
     const video = videoRef.current;
@@ -121,19 +141,29 @@ export function usePlayer(channel: Channel | null) {
     let timer: number | undefined;
     const candidates = buildCandidates(channel);
 
-    const clearTimer = () => { if (timer) window.clearTimeout(timer); timer = undefined; };
+    const clearTimer = () => {
+      if (timer) window.clearTimeout(timer);
+      timer = undefined;
+    };
+
     const failFinal = (msg: string) => {
       clearTimer();
       const tried = candidates.length > 1 ? ` (se probaron ${candidates.length} formatos)` : "";
       setState((s) => ({ ...s, error: msg + tried, loading: false }));
     };
+
     const next = (msg: string) => {
       if (cancelled) return;
       clearTimer();
       destroyEngines();
-      if (idx + 1 < candidates.length) { idx++; start(); }
-      else failFinal(msg);
+      if (idx + 1 < candidates.length) {
+        idx++;
+        start();
+      } else {
+        failFinal(msg);
+      }
     };
+
     fallbackRef.current = next;
 
     const onPlaying = () => clearTimer();
@@ -141,7 +171,11 @@ export function usePlayer(channel: Channel | null) {
 
     const start = async () => {
       destroyEngines();
-      try { video.removeAttribute("src"); video.load(); } catch {}
+      // Reset completo del <video>
+      try {
+        video.removeAttribute("src");
+        video.load();
+      } catch {}
       setState((s) => ({ ...s, loading: true, error: null, audioTracks: [], subtitleTracks: [], currentTime: 0, duration: 0 }));
 
       try {
@@ -170,29 +204,42 @@ export function usePlayer(channel: Channel | null) {
             });
             hls.on(Hls.Events.ERROR, (_e, data) => {
               if (!data.fatal) return;
-              if (data.type === Hls.ErrorTypes.NETWORK_ERROR && retries < 2) { retries++; hls.startLoad(); }
-              else if (data.type === Hls.ErrorTypes.MEDIA_ERROR && retries < 2) { retries++; hls.recoverMediaError(); }
-              else next(`Error HLS: ${data.details}`);
+              if (data.type === Hls.ErrorTypes.NETWORK_ERROR && retries < 2) {
+                retries++;
+                hls.startLoad();
+              } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR && retries < 2) {
+                retries++;
+                hls.recoverMediaError();
+              } else {
+                next(`Error HLS: ${data.details}`);
+              }
             });
           } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
             video.src = url;
             video.play().catch(() => {});
-          } else next("HLS no soportado en este navegador");
+          } else {
+            next("HLS no soportado en este navegador");
+          }
         } else if (kind === "ts" || kind === "flv") {
           if (!mpegts.isSupported()) return next("Este navegador no soporta MPEG-TS");
           const player = mpegts.createPlayer(
             { type: kind === "flv" ? "flv" : "mpegts", url, isLive: true },
-            { enableWorker: true, liveBufferLatencyChasing: true, audioPrefetchBuffer: 0 }
+            {
+              enableWorker: true,
+              liveBufferLatencyChasing: true,
+              // Importante: no prefetch para evitar bloqueos con AC-3
+              audioPrefetchBuffer: 0,
+            }
           );
           tsRef.current = player;
 
-          // CLAVE: detectar AC-3/DTS ANTES de que rompa el MediaSource
+          // Detectar codecs no soportados ANTES de que rompan el MediaSource
           player.on(mpegts.Events.MEDIA_INFO, (mediaInfo: any) => {
             if (cancelled) return;
             const audioCodec = mediaInfo?.audioCodec?.toLowerCase() || "";
-            if (UNSUPPORTED_AUDIO.some((c) => audioCodec.includes(c))) {
-              console.warn(`[StreamBox] Codec no soportado: ${audioCodec}. Probando siguiente...`);
-              next(`Audio ${audioCodec.toUpperCase()} no soportado. Probando HLS...`);
+            if (UNSUPPORTED_AUDIO_CODECS.some((c) => audioCodec.includes(c))) {
+              console.warn(`[StreamBox] Codec de audio no soportado en MSE: ${audioCodec}. Probando siguiente candidato...`);
+              next(`Audio ${audioCodec.toUpperCase()} no soportado en este navegador. Probando HLS...`);
             }
           });
 
@@ -203,16 +250,22 @@ export function usePlayer(channel: Channel | null) {
             const msg = info?.msg ? ` - ${info.msg}` : "";
             next(`Error TS/FLV: ${detail}${http}${msg}`);
           });
+          // Manejar errores de MediaSource (appendBuffer fallido)
           player.on(mpegts.Events.MEDIA_SOURCE_END, () => {
             if (cancelled) return;
-            if (video.error) next("El stream termino con error. Probando siguiente...");
+            // Si el MediaSource terminÃ³ pero no hay error visible, forzar retry
+            if (video.error) {
+              next("El stream terminÃ³ con error. Probando siguiente formato...");
+            }
           });
           video.play().catch(() => {});
         } else {
           video.src = url;
           video.play().catch(() => {});
         }
-      } catch (e: any) { next(e?.message || "Error al cargar el stream"); }
+      } catch (e: any) {
+        next(e?.message || "Error al cargar el stream");
+      }
     };
 
     start();
@@ -233,12 +286,13 @@ export function usePlayer(channel: Channel | null) {
     const onPause = () => setState((s) => ({ ...s, isPlaying: false }));
     const onWaiting = () => setState((s) => ({ ...s, loading: true }));
     const onCanPlay = () => setState((s) => ({ ...s, loading: false }));
-    const onTime = () => setState((s) => ({ ...s, currentTime: video.currentTime, duration: isFinite(video.duration) ? video.duration : 0 }));
+    const onTime = () =>
+      setState((s) => ({ ...s, currentTime: video.currentTime, duration: isFinite(video.duration) ? video.duration : 0 }));
     const onVolume = () => setState((s) => ({ ...s, volume: video.volume, muted: video.muted }));
     const onError = () => {
       if (!video.getAttribute("src") && !hlsRef.current && !tsRef.current) return;
-      if (fallbackRef.current) fallbackRef.current("Error de reproduccion");
-      else setState((s) => ({ ...s, error: "Error de reproduccion", loading: false }));
+      if (fallbackRef.current) fallbackRef.current("Error de reproducciÃ³n");
+      else setState((s) => ({ ...s, error: "Error de reproducciÃ³n", loading: false }));
     };
     video.addEventListener("play", onPlay);
     video.addEventListener("pause", onPause);
@@ -259,22 +313,64 @@ export function usePlayer(channel: Channel | null) {
   }, []);
 
   const actions = {
-    playPause: () => { const v = videoRef.current; if (!v) return; if (v.paused) v.play().catch(() => {}); else v.pause(); },
-    seek: (t: number) => { const v = videoRef.current; if (v && isFinite(v.duration) && v.duration > 0) v.currentTime = Math.max(0, Math.min(v.duration, t)); },
-    setVolume: (vol: number) => { const v = videoRef.current; if (v) v.volume = Math.max(0, Math.min(1, vol)); },
-    setMuted: (m: boolean) => { const v = videoRef.current; if (v) v.muted = m; },
-    setPlaybackRate: (r: number) => { const v = videoRef.current; if (v) v.playbackRate = r; setState((s) => ({ ...s, playbackRate: r })); },
-    setAudioTrack: (id: number) => { if (hlsRef.current) { hlsRef.current.audioTrack = id; setState((s) => ({ ...s, activeAudio: id })); } },
-    setSubtitleTrack: (id: number) => { if (hlsRef.current) { hlsRef.current.subtitleTrack = id; setState((s) => ({ ...s, activeSubtitle: id })); } },
-    requestPiP: async () => { const v = videoRef.current; if (!v) return; try { if (document.pictureInPictureElement) await document.exitPictureInPicture(); else if (v.requestPictureInPicture) await v.requestPictureInPicture(); } catch {} },
+    playPause: () => {
+      const v = videoRef.current;
+      if (!v) return;
+      if (v.paused) v.play().catch(() => {});
+      else v.pause();
+    },
+    seek: (t: number) => {
+      const v = videoRef.current;
+      if (v && isFinite(v.duration) && v.duration > 0) v.currentTime = Math.max(0, Math.min(v.duration, t));
+    },
+    setVolume: (vol: number) => {
+      const v = videoRef.current;
+      if (v) v.volume = Math.max(0, Math.min(1, vol));
+    },
+    setMuted: (m: boolean) => {
+      const v = videoRef.current;
+      if (v) v.muted = m;
+    },
+    setPlaybackRate: (r: number) => {
+      const v = videoRef.current;
+      if (v) v.playbackRate = r;
+      setState((s) => ({ ...s, playbackRate: r }));
+    },
+    setAudioTrack: (id: number) => {
+      if (hlsRef.current) {
+        hlsRef.current.audioTrack = id;
+        setState((s) => ({ ...s, activeAudio: id }));
+      }
+    },
+    setSubtitleTrack: (id: number) => {
+      if (hlsRef.current) {
+        hlsRef.current.subtitleTrack = id;
+        setState((s) => ({ ...s, activeSubtitle: id }));
+      }
+    },
+    requestPiP: async () => {
+      const v = videoRef.current;
+      if (!v) return;
+      try {
+        if (document.pictureInPictureElement) await document.exitPictureInPicture();
+        else if (v.requestPictureInPicture) await v.requestPictureInPicture();
+      } catch {}
+    },
     addSubtitle: (label: string, vtt: string) => {
-      const v = videoRef.current; if (!v) return;
+      const v = videoRef.current;
+      if (!v) return;
       for (const t of extTracksRef.current) t.el.track.mode = "disabled";
-      Array.from(v.textTracks).forEach((t) => { if (t.mode === "showing") t.mode = "disabled"; });
+      Array.from(v.textTracks).forEach((t) => {
+        if (t.mode === "showing") t.mode = "disabled";
+      });
       const url = URL.createObjectURL(new Blob([vtt], { type: "text/vtt" }));
       const el = document.createElement("track");
-      el.kind = "subtitles"; el.label = label; el.src = url; el.default = true;
-      v.appendChild(el); el.track.mode = "showing";
+      el.kind = "subtitles";
+      el.label = label;
+      el.src = url;
+      el.default = true;
+      v.appendChild(el);
+      el.track.mode = "showing";
       const id = String(Date.now()) + Math.random().toString(36).slice(2, 5);
       extTracksRef.current.push({ id, el, url, offset: 0 });
       setState((s) => ({ ...s, extSubs: [...s.extSubs, { id, label }], activeExtSub: id, subOffset: 0, activeSubtitle: -1 }));
@@ -287,8 +383,12 @@ export function usePlayer(channel: Channel | null) {
     shiftSubtitles: (delta: number) => {
       const cur = extTracksRef.current.find((t) => t.id === state.activeExtSub);
       if (!cur) return;
-      const cues = cur.el.track.cues; if (!cues) return;
-      for (const c of Array.from(cues)) { c.startTime = Math.max(0, c.startTime + delta); c.endTime = Math.max(0.05, c.endTime + delta); }
+      const cues = cur.el.track.cues;
+      if (!cues) return;
+      for (const c of Array.from(cues)) {
+        c.startTime = Math.max(0, c.startTime + delta);
+        c.endTime = Math.max(0.05, c.endTime + delta);
+      }
       cur.offset = Math.round((cur.offset + delta) * 10) / 10;
       setState((s) => ({ ...s, subOffset: cur.offset }));
     },
