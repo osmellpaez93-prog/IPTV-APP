@@ -183,6 +183,7 @@ function makeHandler(kind) {
           path: parsed.pathname + parsed.search, headers, timeout: kind === "playlist" ? 180000 : 30000 },
         (upRes) => {
           const code = upRes.statusCode || 200;
+          if (kind === "stream" && (code >= 400 || code < 200)) console.warn("[proxy] stream HTTP", code, parsed.host + parsed.pathname.replace(/\/[^/]+\/[^/]+\/(\d+)/, "/***/***/$1"));
 
           if ([301, 302, 303, 307, 308].includes(code) && upRes.headers.location) {
             upRes.resume();

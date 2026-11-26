@@ -164,7 +164,7 @@ export function Player({ channel, onClose, onPrev, onNext, onJump, position }: P
       {state.error && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/85 p-6 text-center">
           <AlertTriangle className="h-10 w-10 text-brand" />
-          <p className="max-w-md text-sm text-ink">{state.error}</p>
+          <p className="max-w-md whitespace-pre-line text-sm text-ink">{state.error}</p>
           <div className="flex gap-2">
             <button onClick={actions.retry} className="rounded-lg bg-brand px-4 py-2 font-semibold text-white hover:bg-brand-hover">Reintentar</button>
             <button onClick={onClose} className="rounded-lg bg-bg-card px-4 py-2 text-ink hover:bg-bg-hover">Cerrar</button>

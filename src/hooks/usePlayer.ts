@@ -168,15 +168,17 @@ export function usePlayer(channel: Channel | null) {
         .catch(() => { resumeDone = true; });
     }
 
+    const failures: string[] = [];
     const failFinal = (msg: string) => {
       clearWatchdog(); clearStall();
       const tried = candidates.length > 1 ? ` (se probaron ${candidates.length} fuentes)` : "";
-      setState((s) => ({ ...s, error: msg + tried, loading: false, stalled: false }));
+      setState((s) => ({ ...s, error: failures.length > 1 ? failures.join("\n") : msg + tried, loading: false, stalled: false }));
     };
 
     const next = (msg: string) => {
       if (!alive) return;
       clearWatchdog(); clearStall();
+      failures.push(`${idx + 1}. ${detectKind(candidates[idx])}: ${msg}`);
       if (idx + 1 < candidates.length) { idx++; void start(); }
       else failFinal(msg);
     };
@@ -279,7 +281,7 @@ export function usePlayer(channel: Channel | null) {
                 med++;
                 if (med === 1) hls.recoverMediaError();
                 else { try { hls.swapAudioCodec(); } catch {} hls.recoverMediaError(); }
-              } else next(`HLS: ${data.details}`);
+              } else next(`HLS: ${data.details}${data.response?.code ? ` (HTTP ${data.response.code})` : ""}`);
             });
             hls.loadSource(url);
             hls.attachMedia(video);
