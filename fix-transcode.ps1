@@ -1,9 +1,9 @@
 <#
 StreamBox - fix-transcode.ps1
-Amplia ProxyKind en proxy.ts para aceptar "transcode" (lo pide el usePlayer.ts
-parcheado por Claude). El endpoint /proxy/transcode no existe en el servidor,
-pero asi TS no se queja y el fallback del reproductor se encarga.
-Idempotente. .bak en cada archivo tocado. UTF-8 sin BOM.
+Arregla el error TS2345 en usePlayer.ts linea 256:
+  "transcode" no es asignable a ProxyKind.
+Solucion: ampliar el tipo en proxy.ts para aceptar "transcode".
+Idempotente. Guarda .bak. UTF-8 sin BOM.
 #>
 param([switch]$Force)
 $ErrorActionPreference = "Stop"
@@ -34,17 +34,9 @@ function Edit-Replace {
 
 # proxy.ts: ampliar ProxyKind para aceptar "transcode"
 Edit-Replace 'src/services/proxy.ts' `
-  'export type ProxyKind = "playlist" | "stream" | "image";' `
-  'export type ProxyKind = "playlist" | "stream" | "image" | "transcode";' `
+  'export async function proxify(url: string, kind: "playlist" | "stream" | "image" = "stream"): Promise<string> {' `
+  'export async function proxify(url: string, kind: "playlist" | "stream" | "image" | "transcode" = "stream"): Promise<string> {' `
   '"transcode"'
-
-# Si proxy.ts no tiene esa linea exacta (puede haber variantes), probamos otra ancla
-if (-not (Test-Path (Join-Path $root "src/services/proxy.ts.bak"))) {
-  Edit-Replace 'src/services/proxy.ts' `
-    '"playlist" | "stream" | "image"' `
-    '"playlist" | "stream" | "image" | "transcode"' `
-    '"transcode"'
-}
 
 Write-Host ""
 Write-Host "Listo. Verifica con:" -ForegroundColor Green

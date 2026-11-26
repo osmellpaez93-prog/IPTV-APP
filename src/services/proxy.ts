@@ -2,7 +2,7 @@
 import { getSettings } from "../db";
 import { isTauri } from "./net";
 
-export async function proxify(url: string, kind: "playlist" | "stream" | "image" = "stream"): Promise<string> {
+export async function proxify(url: string, kind: "playlist" | "stream" | "image" | "transcode" = "stream"): Promise<string> {
   if (!url) return url;
   const s = await getSettings();
   const base = (s.proxyUrl || "/proxy").replace(/\/$/, "");
