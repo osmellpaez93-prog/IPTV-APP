@@ -1,3 +1,15 @@
+// ffmpeg disponible en el servidor (solo se cachea el resultado positivo)
+let ffmpegOk = false;
+async function hasFfmpeg(): Promise<boolean> {
+  if (ffmpegOk) return true;
+  try {
+    const r = await fetch("/proxy/ffmpeg");
+    const j = await r.json();
+    ffmpegOk = !!j.available;
+  } catch { ffmpegOk = false; }
+  return ffmpegOk;
+}
+
 /**
  * Motor de reproduccion.
  *  - hls.js -> .m3u8      - mpegts.js -> MPEG-TS / FLV      - <video> nativo -> mp4 / webm / mov
@@ -17,7 +29,7 @@ import { db } from "../db";
 type MpegtsPlayer = ReturnType<typeof mpegts.createPlayer>;
 export type EngineKind = "hls" | "ts" | "flv" | "native";
 export interface Track { id: number; label: string }
-interface Source { url: string; tx?: boolean }
+interface Source { url: string; tx?: "mp4" | "ts" }
 
 export interface PlayerState {
   loading: boolean;
@@ -78,7 +90,7 @@ function buildCandidates(ch: Channel): Source[] {
   const list: Source[] = direct.map((url) => ({ url }));
   if (ch.category === "live" && direct.length) {
     const tsUrl = direct.find((u) => detectKind(u) === "ts") ?? direct[0];
-    list.push({ url: tsUrl, tx: true });
+    list.push({ url: tsUrl, tx: "mp4" }, { url: tsUrl, tx: "ts" });
   }
   return list;
 }
@@ -132,6 +144,9 @@ export function usePlayer(channel: Channel | null) {
     let resumeDone = isLive;
     let softRetries = 0;
     const failures: string[] = [];
+    let seq = 0;
+    let failedSeq = -1;
+    let curBail: ((msg: string, toTx?: boolean) => void) | null = null;
 
     const clearWatchdog = () => { if (watchdog) window.clearTimeout(watchdog); watchdog = undefined; };
     const clearStall = () => { if (stallTimer) window.clearTimeout(stallTimer); stallTimer = undefined; };
@@ -166,7 +181,7 @@ export function usePlayer(channel: Channel | null) {
       if (!alive) return;
       clearWatchdog(); clearStall();
       const cur = candidates[idx];
-      failures.push(`${idx + 1}. ${cur.tx ? "transcodificado" : detectKind(cur.url)}: ${msg}`);
+      failures.push(`${idx + 1}. ${cur.tx ? "transcodificado-" + cur.tx : detectKind(cur.url)}: ${msg}`);
       let n = idx + 1;
       if (toTx) {
         const t = candidates.findIndex((c, i) => i > idx && c.tx);
@@ -195,7 +210,7 @@ export function usePlayer(channel: Channel | null) {
       stallTimer = window.setTimeout(() => {
         if (!alive) return;
         setState((s) => ({ ...s, stalled: true }));
-        if (!softRecover()) next("La fuente dejo de enviar datos");
+        if (!softRecover()) curBail?.("La fuente dejo de enviar datos");
       }, 9000);
     };
     const onMeta = () => applyResume();
@@ -203,8 +218,22 @@ export function usePlayer(channel: Channel | null) {
     video.addEventListener("playing", onPlaying);
     video.addEventListener("waiting", onWaiting);
     video.addEventListener("loadedmetadata", onMeta);
+    const onVideoError = () => {
+      if (!video.getAttribute("src") && !hlsRef.current && !tsRef.current) return;
+      const e = video.error;
+      curBail?.(`Video: ${e ? "codigo " + e.code + (e.message ? " - " + e.message : "") : "error"}`);
+    };
+    video.addEventListener("error", onVideoError);
 
     const start = async () => {
+      const my = ++seq;
+      // Cada intento solo puede fallar UNA vez y los avisos tardios de un intento anterior se ignoran
+      const bail = (msg: string, toTx = false) => {
+        if (my !== seq || failedSeq === my) return;
+        failedSeq = my;
+        window.setTimeout(() => { if (my === seq) next(msg, toTx); }, 0);
+      };
+      curBail = bail;
       destroyEngines();
       clearExtSubs();
       try { video.removeAttribute("src"); video.load(); } catch {}
@@ -218,17 +247,21 @@ export function usePlayer(channel: Channel | null) {
       }));
 
       const src = candidates[idx];
-      const kind: EngineKind = src.tx ? "ts" : detectKind(src.url);
+      const kind: EngineKind = src.tx === "mp4" ? "native" : src.tx === "ts" ? "ts" : detectKind(src.url);
+      if (src.tx && !(await hasFfmpeg())) {
+        return bail("ffmpeg no esta instalado en el PC (winget install Gyan.FFmpeg; reinicia la terminal y el servidor)");
+      }
+      if (!alive || my !== seq) return;
       let url = "";
-      try { url = await proxify(src.url, src.tx ? "transcode" : "stream"); }
-      catch (e: any) { return next(e?.message || "No se pudo preparar la URL del proxy"); }
+      try { url = await proxify(src.url, src.tx ? "transcode" : "stream"); if (src.tx) url += (url.includes("?") ? "&" : "?") + "fmt=" + src.tx; }
+      catch (e: any) { return bail(e?.message || "No se pudo preparar la URL del proxy"); }
       if (!alive) return;
 
       setState((s) => ({ ...s, engine: kind }));
       clearWatchdog();
       watchdog = window.setTimeout(
-        () => next(isLive ? "El canal no responde" : "La fuente no responde"),
-        isLive ? (src.tx ? 20000 : 14000) : 60000
+        () => bail(isLive ? "El canal no responde" : "La fuente no responde"),
+        isLive ? (src.tx ? 20000 : 10000) : 60000
       );
 
       const tryPlay = () => {
@@ -266,25 +299,25 @@ export function usePlayer(channel: Channel | null) {
             hls.on(Hls.Events.ERROR, (_e, data) => {
               if (!alive || !data.fatal) return;
               const codec = /bufferAddCodecError|bufferIncompatibleCodecsError/.test(String(data.details));
-              if (codec && !src.tx) { next(`HLS: ${data.details} (codec no compatible)`, true); return; }
+              if (codec && !src.tx) { bail(`HLS: ${data.details} (codec no compatible)`, true); return; }
               if (data.type === Hls.ErrorTypes.NETWORK_ERROR && net < 2) { net++; hls.startLoad(); }
               else if (data.type === Hls.ErrorTypes.MEDIA_ERROR && med < 2) {
                 med++;
                 if (med === 1) hls.recoverMediaError();
                 else { try { hls.swapAudioCodec(); } catch {} hls.recoverMediaError(); }
-              } else next(`HLS: ${data.details}${data.response?.code ? ` (HTTP ${data.response.code})` : ""}`);
+              } else bail(`HLS: ${data.details}${data.response?.code ? ` (HTTP ${data.response.code})` : ""}`);
             });
             hls.loadSource(url);
             hls.attachMedia(video);
           } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
             video.src = url;
             tryPlay();
-          } else { next("HLS no soportado en este navegador"); }
+          } else { bail("HLS no soportado en este navegador"); }
           return;
         }
 
         if (kind === "ts" || kind === "flv") {
-          if (!mpegts.isSupported()) return next("Este navegador no soporta MPEG-TS (usa Chrome o Edge)", true);
+          if (!mpegts.isSupported()) return bail("Este navegador no soporta MPEG-TS (usa Chrome o Edge)", true);
           const player = mpegts.createPlayer(
             { type: kind === "flv" ? "flv" : "mpegts", url, isLive, cors: true },
             {
@@ -304,11 +337,11 @@ export function usePlayer(channel: Channel | null) {
           player.on(mpegts.Events.ERROR, (_t: string, detail: string, info: any) => {
             const text = String(info?.msg || "");
             if (src.tx && info?.code === 501) {
-              return next("ffmpeg no esta instalado en el PC (winget install Gyan.FFmpeg; reinicia la terminal y el servidor)");
+              return bail("ffmpeg no esta instalado en el PC (winget install Gyan.FFmpeg; reinicia la terminal y el servidor)");
             }
             const codec = !src.tx && /addSourceBuffer|unsupported|ac-?3/i.test(text);
             const http = info?.code ? ` (HTTP ${info.code})` : "";
-            next(`TS/FLV: ${detail}${http}${text ? ` - ${text}` : ""}`, codec);
+            bail(`TS/FLV: ${detail}${http}${text ? ` - ${text}` : ""}`, codec);
           });
           player.load();
           tryPlay();
@@ -317,7 +350,7 @@ export function usePlayer(channel: Channel | null) {
 
         video.src = url;
         tryPlay();
-      } catch (e: any) { next(e?.message || "Error al cargar el stream"); }
+      } catch (e: any) { bail(e?.message || "Error al cargar el stream"); }
     };
 
     void start();
@@ -343,6 +376,7 @@ export function usePlayer(channel: Channel | null) {
       video.removeEventListener("playing", onPlaying);
       video.removeEventListener("waiting", onWaiting);
       video.removeEventListener("loadedmetadata", onMeta);
+      video.removeEventListener("error", onVideoError);
       destroyEngines();
       clearExtSubs();
     };

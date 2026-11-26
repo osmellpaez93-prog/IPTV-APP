@@ -247,8 +247,18 @@ function makeHandler(kind) {
 // Muchos canales llevan audio AC-3 / E-AC-3, que Chrome y Edge no reproducen.
 // Copiamos el video tal cual y convertimos solo el audio a AAC. Requiere ffmpeg en el PATH
 // (o la variable FFMPEG_PATH). Maximo 4 transcodificaciones simultaneas.
+//   fmt=mp4 (por defecto): MP4 fragmentado, lo reproduce el <video> nativo (sin MSE)
+//   fmt=ts               : MPEG-TS para mpegts.js
 const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
 let ffActive = 0;
+
+app.get("/proxy/ffmpeg", (_req, res) => {
+  let out = "";
+  const p = spawn(FFMPEG, ["-version"], { windowsHide: true });
+  p.on("error", () => { if (!res.headersSent) res.json({ available: false }); });
+  if (p.stdout) p.stdout.on("data", (d) => { out += d.toString(); });
+  p.on("close", (code) => { if (!res.headersSent) res.json({ available: code === 0, version: out.split("\n")[0] }); });
+});
 
 app.get("/proxy/transcode", (req, res) => {
   const target = req.query.url;
@@ -258,15 +268,21 @@ app.get("/proxy/transcode", (req, res) => {
   if (!/^https?:$/.test(parsed.protocol)) return res.status(400).json({ error: "Unsupported protocol" });
   if (ffActive >= 4) return res.status(429).json({ error: "Demasiadas transcodificaciones simultaneas" });
 
+  const fmt = req.query.fmt === "ts" ? "ts" : "mp4";
+  const output = fmt === "mp4"
+    ? ["-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "pipe:1"]
+    : ["-flush_packets", "1", "-f", "mpegts", "pipe:1"];
+
   const args = [
     "-hide_banner", "-loglevel", "error", "-nostdin",
     "-user_agent", UA_VLC,
     "-fflags", "+genpts+discardcorrupt",
+    "-probesize", "1500000", "-analyzeduration", "2000000",
     "-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5",
     "-i", target,
     "-map", "0:v:0?", "-map", "0:a:0?",
     "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-ac", "2",
-    "-flush_packets", "1", "-f", "mpegts", "pipe:1",
+    ...output,
   ];
 
   const ff = spawn(FFMPEG, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
@@ -287,7 +303,7 @@ app.get("/proxy/transcode", (req, res) => {
       if (!started) {
         started = true;
         res.status(200);
-        res.setHeader("Content-Type", "video/mp2t");
+        res.setHeader("Content-Type", fmt === "mp4" ? "video/mp4" : "video/mp2t");
         res.setHeader("Cache-Control", "no-store");
       }
       if (!res.write(chunk)) {
@@ -303,7 +319,6 @@ app.get("/proxy/transcode", (req, res) => {
   });
   res.on("close", () => { try { ff.kill("SIGKILL"); } catch {} });
 });
-
 for (const kind of ["playlist", "stream", "image"]) {
   app.get(`/proxy/${kind}`, makeHandler(kind));
   app.head(`/proxy/${kind}`, makeHandler(kind));
