@@ -4,6 +4,7 @@ import { Sidebar } from "./Sidebar";
 import { BottomNav } from "./BottomNav";
 import { Player } from "./Player";
 import { SeriesDetail } from "./SeriesDetail";
+import { MovieDetail } from "./MovieDetail";
 import { useStore } from "../store";
 import { useSpatialNav } from "../hooks/useSpatialNav";
 
@@ -15,6 +16,7 @@ export function Layout() {
   const zap = useStore((s) => s.zap);
   const zapTo = useStore((s) => s.zapTo);
   const openSeries = useStore((s) => s.openSeries);
+  const openMovie = useStore((s) => s.openMovie);
 
   useSpatialNav(true);
 
@@ -64,8 +66,9 @@ export function Layout() {
 
       <BottomNav />
 
-      <div {...(openSeries ? { "data-nav-lock": "modal" } : {})}>
+      <div {...(openSeries || openMovie ? { "data-nav-lock": "modal" } : {})}>
         <SeriesDetail />
+        <MovieDetail />
       </div>
     </div>
   );

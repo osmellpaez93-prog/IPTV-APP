@@ -1,12 +1,19 @@
 import Dexie, { type Table } from "dexie";
 import type { Playlist, Channel, Favorite, WatchHistory, Settings } from "../types";
 
+export interface MetaCache {
+  id: string;
+  at: number;
+  data: unknown;
+}
+
 export class StreamBoxDB extends Dexie {
   playlists!: Table<Playlist, string>;
   channels!: Table<Channel, string>;
   favorites!: Table<Favorite, string>;
   history!: Table<WatchHistory, string>;
   settings!: Table<Settings & { id: string }, string>;
+  meta!: Table<MetaCache, string>;
 
   constructor() {
     super("streambox");
@@ -16,6 +23,15 @@ export class StreamBoxDB extends Dexie {
       favorites: "id, addedAt",
       history: "id, updatedAt",
       settings: "id",
+    });
+    // v2: caché de fichas (sinopsis, carátulas, reparto)
+    this.version(2).stores({
+      playlists: "id, createdAt",
+      channels: "id, playlistId, group, category, [playlistId+category]",
+      favorites: "id, addedAt",
+      history: "id, updatedAt",
+      settings: "id",
+      meta: "id",
     });
   }
 }

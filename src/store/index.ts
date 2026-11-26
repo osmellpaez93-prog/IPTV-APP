@@ -11,16 +11,21 @@ interface UIState {
   setActivePlaylistId: (id: string | null) => void;
 
   nowPlaying: Channel | null;
-  setNowPlaying: (c: Channel | null) => void;
-
-  /** Cola de zapping: la lista filtrada desde la que se lanzo el canal. */
+  /** Cola de zapping: la lista filtrada desde la que se lanzó el canal. */
   queue: Channel[];
+
+  /** Abre el elemento: series -> detalle de serie, películas -> ficha, resto -> reproduce. */
+  setNowPlaying: (c: Channel | null) => void;
   play: (c: Channel, list?: Channel[]) => void;
+  /** Reproduce directamente (botón Reproducir de la ficha, continuar viendo). */
+  playNow: (c: Channel, list?: Channel[]) => void;
   zap: (delta: number) => void;
   zapTo: (index: number) => void;
 
   openSeries: Channel | null;
   closeSeries: () => void;
+  openMovie: Channel | null;
+  closeMovie: () => void;
 }
 
 export const useStore = create<UIState>()(
@@ -35,24 +40,34 @@ export const useStore = create<UIState>()(
 
       nowPlaying: null,
       queue: [],
+
       setNowPlaying: (c) =>
         set((s) => {
-          if (c && c.seriesId) return { openSeries: c };
           if (!c) return { nowPlaying: null };
+          if (c.seriesId) return { openSeries: c };
+          if (c.category === "movies") return { openMovie: c };
           const inQueue = s.queue.some((x) => x.id === c.id);
           return { nowPlaying: c, queue: inQueue ? s.queue : [c] };
         }),
 
       play: (c, list) =>
-        set(c.seriesId ? { openSeries: c } : { nowPlaying: c, queue: list && list.length ? list : [c] }),
+        set(
+          c.seriesId
+            ? { openSeries: c }
+            : c.category === "movies"
+              ? { openMovie: c }
+              : { nowPlaying: c, queue: list && list.length ? list : [c] }
+        ),
+
+      playNow: (c, list) =>
+        set({ nowPlaying: c, queue: list && list.length ? list : [c], openMovie: null, openSeries: null }),
 
       zap: (delta) => {
         const { queue, nowPlaying } = get();
         if (!nowPlaying || queue.length < 2) return;
         const i = queue.findIndex((x) => x.id === nowPlaying.id);
         if (i < 0) return;
-        const n = (i + delta + queue.length) % queue.length;
-        set({ nowPlaying: queue[n] });
+        set({ nowPlaying: queue[(i + delta + queue.length) % queue.length] });
       },
 
       zapTo: (index) => {
@@ -62,6 +77,8 @@ export const useStore = create<UIState>()(
 
       openSeries: null,
       closeSeries: () => set({ openSeries: null }),
+      openMovie: null,
+      closeMovie: () => set({ openMovie: null }),
     }),
     {
       name: "streambox-ui",

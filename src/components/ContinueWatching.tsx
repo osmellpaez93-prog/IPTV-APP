@@ -12,7 +12,7 @@ function left(min: number) {
 export function ContinueWatching() {
   const items = useContinueWatching();
   const remove = useRemoveResume();
-  const setNowPlaying = useStore((s) => s.setNowPlaying);
+  const playNow = useStore((s) => s.playNow);
   const setActivePlaylistId = useStore((s) => s.setActivePlaylistId);
 
   if (items.length === 0) return null;
@@ -33,7 +33,7 @@ export function ContinueWatching() {
                 data-focusable="true"
                 onClick={() => {
                   if (channel.playlistId) setActivePlaylistId(channel.playlistId);
-                  setNowPlaying(channel);
+                  playNow(channel);
                 }}
                 className="block w-full overflow-hidden rounded-xl border border-white/5 bg-bg-card text-left hover:border-aqua/50"
               >
