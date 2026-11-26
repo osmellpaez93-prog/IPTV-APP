@@ -4,6 +4,7 @@
  */
 import type { Channel, Playlist } from "../../types";
 import { proxify } from "../proxy";
+import { appFetchPlaylist } from "../net";
 
 export interface XtreamCreds {
   server: string;
@@ -54,6 +55,7 @@ async function api<T>(c: XtreamCreds, action?: string, extra = ""): Promise<T> {
   let res: Response;
   try {
     res = await fetch(await proxify(url, "playlist"));
+res = await appFetchPlaylist(url);
   } catch {
     throw new Error("No se pudo conectar con el proxy. ¿Está corriendo 'npm start'?");
   }

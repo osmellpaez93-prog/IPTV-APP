@@ -107,6 +107,7 @@ export async function loadM3UFromUrl(url: string, playlistId: string): Promise<P
   let res: Response;
   try {
     res = await fetch(proxied);
+res = await appFetchPlaylist(url);
   } catch {
     throw new Error("No se pudo conectar con el proxy. Ejecuta 'npm start'.");
   }

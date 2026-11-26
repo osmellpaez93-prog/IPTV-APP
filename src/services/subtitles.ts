@@ -1,5 +1,6 @@
 // Cliente de subtitulos: busqueda/descarga via nuestro servidor (OpenSubtitles) y conversion SRT -> VTT.
 import type { Settings } from "../types";
+import { appFetch } from "./net";
 
 export interface SubResult {
   fileId: number;
@@ -55,6 +56,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   let res: Response;
   try {
     res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+res = await appFetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   } catch {
     throw new Error("No se pudo conectar con el servidor de StreamBox.");
   }
