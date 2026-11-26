@@ -6,6 +6,7 @@
  */
 import type { Channel } from "../../types";
 import { proxify } from "../proxy";
+import { appFetchPlaylist } from "../net";
 
 const ATTR_RE = /([a-zA-Z0-9_-]+)="([^"]*)"/g;
 
