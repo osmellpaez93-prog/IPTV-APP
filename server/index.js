@@ -9,6 +9,7 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
+import { spawn } from "node:child_process";
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -241,6 +242,67 @@ function makeHandler(kind) {
     go(target, 0);
   };
 }
+
+// ---------------------------------------------------------------- transcodificacion de audio (ffmpeg)
+// Muchos canales llevan audio AC-3 / E-AC-3, que Chrome y Edge no reproducen.
+// Copiamos el video tal cual y convertimos solo el audio a AAC. Requiere ffmpeg en el PATH
+// (o la variable FFMPEG_PATH). Maximo 4 transcodificaciones simultaneas.
+const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
+let ffActive = 0;
+
+app.get("/proxy/transcode", (req, res) => {
+  const target = req.query.url;
+  if (!target || typeof target !== "string") return res.status(400).json({ error: "Missing url query" });
+  let parsed;
+  try { parsed = new URL(target); } catch { return res.status(400).json({ error: "Invalid url" }); }
+  if (!/^https?:$/.test(parsed.protocol)) return res.status(400).json({ error: "Unsupported protocol" });
+  if (ffActive >= 4) return res.status(429).json({ error: "Demasiadas transcodificaciones simultaneas" });
+
+  const args = [
+    "-hide_banner", "-loglevel", "error", "-nostdin",
+    "-user_agent", UA_VLC,
+    "-fflags", "+genpts+discardcorrupt",
+    "-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5",
+    "-i", target,
+    "-map", "0:v:0?", "-map", "0:a:0?",
+    "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-ac", "2",
+    "-flush_packets", "1", "-f", "mpegts", "pipe:1",
+  ];
+
+  const ff = spawn(FFMPEG, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+  ffActive++;
+  let started = false;
+  let done = false;
+  let tail = "";
+  const release = () => { if (!done) { done = true; ffActive--; } };
+
+  ff.on("error", (e) => {
+    release();
+    if (!res.headersSent) res.status(501).json({ error: e.code === "ENOENT" ? "ffmpeg no esta instalado" : e.message });
+    else res.end();
+  });
+  if (ff.stderr) ff.stderr.on("data", (d) => { tail = (tail + d.toString()).slice(-400); });
+  if (ff.stdout) {
+    ff.stdout.on("data", (chunk) => {
+      if (!started) {
+        started = true;
+        res.status(200);
+        res.setHeader("Content-Type", "video/mp2t");
+        res.setHeader("Cache-Control", "no-store");
+      }
+      if (!res.write(chunk)) {
+        ff.stdout.pause();
+        res.once("drain", () => ff.stdout.resume());
+      }
+    });
+  }
+  ff.on("close", () => {
+    release();
+    if (!started && !res.headersSent) res.status(502).json({ error: "ffmpeg: " + (tail.trim() || "sin salida") });
+    else res.end();
+  });
+  res.on("close", () => { try { ff.kill("SIGKILL"); } catch {} });
+});
 
 for (const kind of ["playlist", "stream", "image"]) {
   app.get(`/proxy/${kind}`, makeHandler(kind));

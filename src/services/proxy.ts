@@ -9,7 +9,7 @@
  */
 import { getSettings } from "../db";
 
-export type ProxyKind = "playlist" | "stream" | "image";
+export type ProxyKind = "playlist" | "stream" | "image" | "transcode";
 
 // Base sincrona para helpers que no pueden ser async (imgUrl).
 let baseSync = "/proxy";

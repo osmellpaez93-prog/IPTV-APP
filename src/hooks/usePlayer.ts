@@ -1,12 +1,11 @@
 /**
  * Motor de reproduccion.
- *  - hls.js  -> .m3u8
- *  - mpegts.js -> MPEG-TS / FLV (worker DESACTIVADO: maxima compatibilidad)
- *  - <video> nativo -> mp4 / webm / mov
+ *  - hls.js -> .m3u8      - mpegts.js -> MPEG-TS / FLV      - <video> nativo -> mp4 / webm / mov
  *  - Cadena de fuentes: prueba .m3u8 y .ts del mismo canal antes de rendirse.
- *  - URLs siempre absolutas (ver services/proxy.ts).
- *  - Reintentos, watchdog, recuperacion de stalls, autoplay bloqueado,
- *    progreso guardado y reanudacion para VOD.
+ *  - Ultima fuente en vivo: TRANSCODIFICADA con ffmpeg (video copiado, audio -> AAC). Se salta
+ *    directamente a ella cuando el navegador no puede decodificar el audio (AC-3 / E-AC-3).
+ *  - URLs absolutas, reintentos, watchdog, autoplay bloqueado, progreso y reanudacion (VOD).
+ *  - Si todo falla, el error lista el motivo de cada fuente.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
@@ -18,6 +17,7 @@ import { db } from "../db";
 type MpegtsPlayer = ReturnType<typeof mpegts.createPlayer>;
 export type EngineKind = "hls" | "ts" | "flv" | "native";
 export interface Track { id: number; label: string }
+interface Source { url: string; tx?: boolean }
 
 export interface PlayerState {
   loading: boolean;
@@ -44,27 +44,10 @@ export interface PlayerState {
 }
 
 const INITIAL: PlayerState = {
-  loading: true,
-  error: null,
-  isPlaying: false,
-  blocked: false,
-  stalled: false,
-  currentTime: 0,
-  duration: 0,
-  buffered: 0,
-  volume: 1,
-  muted: false,
-  playbackRate: 1,
-  audioTracks: [],
-  subtitleTracks: [],
-  activeAudio: -1,
-  activeSubtitle: -1,
-  extSubs: [],
-  activeExtSub: null,
-  subOffset: 0,
-  engine: null,
-  attempt: 0,
-  attempts: 0,
+  loading: true, error: null, isPlaying: false, blocked: false, stalled: false,
+  currentTime: 0, duration: 0, buffered: 0, volume: 1, muted: false, playbackRate: 1,
+  audioTracks: [], subtitleTracks: [], activeAudio: -1, activeSubtitle: -1,
+  extSubs: [], activeExtSub: null, subOffset: 0, engine: null, attempt: 0, attempts: 0,
 };
 
 function pathOf(raw: string): string {
@@ -82,18 +65,22 @@ export function detectKind(raw: string): EngineKind {
   return "native";
 }
 
-function buildCandidates(ch: Channel): string[] {
-  const list = [ch.url, ...(ch.altUrls ?? [])].filter(Boolean);
+function buildCandidates(ch: Channel): Source[] {
+  const urls = [ch.url, ...(ch.altUrls ?? [])].filter(Boolean);
   if (ch.category === "live") {
-    const m = ch.url.match(
-      /^(https?:\/\/[^/]+)\/(?:live\/)?([^/]+)\/([^/]+)\/(\d+)(?:\.(?:ts|m3u8))?(?:\?.*)?$/i
-    );
+    const m = ch.url.match(/^(https?:\/\/[^/]+)\/(?:live\/)?([^/]+)\/([^/]+)\/(\d+)(?:\.(?:ts|m3u8))?(?:\?.*)?$/i);
     if (m) {
       const base = `${m[1]}/live/${m[2]}/${m[3]}/${m[4]}`;
-      list.push(`${base}.m3u8`, `${base}.ts`, base);
+      urls.push(`${base}.m3u8`, `${base}.ts`, base);
     }
   }
-  return Array.from(new Set(list));
+  const direct = Array.from(new Set(urls));
+  const list: Source[] = direct.map((url) => ({ url }));
+  if (ch.category === "live" && direct.length) {
+    const tsUrl = direct.find((u) => detectKind(u) === "ts") ?? direct[0];
+    list.push({ url: tsUrl, tx: true });
+  }
+  return list;
 }
 
 export function usePlayer(channel: Channel | null) {
@@ -144,6 +131,7 @@ export function usePlayer(channel: Channel | null) {
     let resumeAt = 0;
     let resumeDone = isLive;
     let softRetries = 0;
+    const failures: string[] = [];
 
     const clearWatchdog = () => { if (watchdog) window.clearTimeout(watchdog); watchdog = undefined; };
     const clearStall = () => { if (stallTimer) window.clearTimeout(stallTimer); stallTimer = undefined; };
@@ -168,18 +156,23 @@ export function usePlayer(channel: Channel | null) {
         .catch(() => { resumeDone = true; });
     }
 
-    const failures: string[] = [];
     const failFinal = (msg: string) => {
       clearWatchdog(); clearStall();
-      const tried = candidates.length > 1 ? ` (se probaron ${candidates.length} fuentes)` : "";
-      setState((s) => ({ ...s, error: failures.length > 1 ? failures.join("\n") : msg + tried, loading: false, stalled: false }));
+      setState((s) => ({ ...s, error: failures.length > 1 ? failures.join("\n") : msg, loading: false, stalled: false }));
     };
 
-    const next = (msg: string) => {
+    // toTx: salta directamente a la fuente transcodificada (el navegador no soporta el audio/video)
+    const next = (msg: string, toTx = false) => {
       if (!alive) return;
       clearWatchdog(); clearStall();
-      failures.push(`${idx + 1}. ${detectKind(candidates[idx])}: ${msg}`);
-      if (idx + 1 < candidates.length) { idx++; void start(); }
+      const cur = candidates[idx];
+      failures.push(`${idx + 1}. ${cur.tx ? "transcodificado" : detectKind(cur.url)}: ${msg}`);
+      let n = idx + 1;
+      if (toTx) {
+        const t = candidates.findIndex((c, i) => i > idx && c.tx);
+        if (t >= 0) n = t;
+      }
+      if (n < candidates.length) { idx = n; void start(); }
       else failFinal(msg);
     };
 
@@ -224,10 +217,10 @@ export function usePlayer(channel: Channel | null) {
         attempt: idx + 1, attempts: candidates.length,
       }));
 
-      const raw = candidates[idx];
-      const kind = detectKind(raw);
+      const src = candidates[idx];
+      const kind: EngineKind = src.tx ? "ts" : detectKind(src.url);
       let url = "";
-      try { url = await proxify(raw, "stream"); }
+      try { url = await proxify(src.url, src.tx ? "transcode" : "stream"); }
       catch (e: any) { return next(e?.message || "No se pudo preparar la URL del proxy"); }
       if (!alive) return;
 
@@ -235,7 +228,7 @@ export function usePlayer(channel: Channel | null) {
       clearWatchdog();
       watchdog = window.setTimeout(
         () => next(isLive ? "El canal no responde" : "La fuente no responde"),
-        isLive ? 14000 : 60000
+        isLive ? (src.tx ? 20000 : 14000) : 60000
       );
 
       const tryPlay = () => {
@@ -252,14 +245,10 @@ export function usePlayer(channel: Channel | null) {
         if (kind === "hls") {
           if (Hls.isSupported()) {
             const hls = new Hls({
-              enableWorker: true,
-              lowLatencyMode: false,
-              backBufferLength: isLive ? 30 : 90,
-              maxBufferLength: isLive ? 20 : 40,
-              manifestLoadingTimeOut: 12000,
-              manifestLoadingMaxRetry: 1,
-              levelLoadingTimeOut: 12000,
-              fragLoadingTimeOut: 22000,
+              enableWorker: true, lowLatencyMode: false,
+              backBufferLength: isLive ? 30 : 90, maxBufferLength: isLive ? 20 : 40,
+              manifestLoadingTimeOut: 12000, manifestLoadingMaxRetry: 1,
+              levelLoadingTimeOut: 12000, fragLoadingTimeOut: 22000,
             });
             hlsRef.current = hls;
             let net = 0, med = 0;
@@ -276,6 +265,8 @@ export function usePlayer(channel: Channel | null) {
             });
             hls.on(Hls.Events.ERROR, (_e, data) => {
               if (!alive || !data.fatal) return;
+              const codec = /bufferAddCodecError|bufferIncompatibleCodecsError/.test(String(data.details));
+              if (codec && !src.tx) { next(`HLS: ${data.details} (codec no compatible)`, true); return; }
               if (data.type === Hls.ErrorTypes.NETWORK_ERROR && net < 2) { net++; hls.startLoad(); }
               else if (data.type === Hls.ErrorTypes.MEDIA_ERROR && med < 2) {
                 med++;
@@ -293,13 +284,10 @@ export function usePlayer(channel: Channel | null) {
         }
 
         if (kind === "ts" || kind === "flv") {
-          if (!mpegts.isSupported()) return next("Este navegador no soporta MPEG-TS");
+          if (!mpegts.isSupported()) return next("Este navegador no soporta MPEG-TS (usa Chrome o Edge)", true);
           const player = mpegts.createPlayer(
             { type: kind === "flv" ? "flv" : "mpegts", url, isLive, cors: true },
             {
-              // Worker OFF: evita el fetch en WorkerGlobalScope y los problemas
-              // de Blob-URL en Safari/WebView. El demux en hilo principal es
-              // suficiente para un unico stream.
               enableWorker: false,
               isLive,
               lazyLoad: !isLive,
@@ -314,9 +302,13 @@ export function usePlayer(channel: Channel | null) {
           tsRef.current = player;
           player.attachMediaElement(video);
           player.on(mpegts.Events.ERROR, (_t: string, detail: string, info: any) => {
+            const text = String(info?.msg || "");
+            if (src.tx && info?.code === 501) {
+              return next("ffmpeg no esta instalado en el PC (winget install Gyan.FFmpeg; reinicia la terminal y el servidor)");
+            }
+            const codec = !src.tx && /addSourceBuffer|unsupported|ac-?3/i.test(text);
             const http = info?.code ? ` (HTTP ${info.code})` : "";
-            const msg = info?.msg ? ` - ${info.msg}` : "";
-            next(`TS/FLV: ${detail}${http}${msg}`);
+            next(`TS/FLV: ${detail}${http}${text ? ` - ${text}` : ""}`, codec);
           });
           player.load();
           tryPlay();
@@ -339,11 +331,7 @@ export function usePlayer(channel: Channel | null) {
       const p = video.currentTime;
       if (!isFinite(d) || d < 60 || !isFinite(p) || p < 5) return;
       if (p / d > 0.97) { void db.history.delete(ch.id).catch(() => {}); return; }
-      void db.history.put({
-        id: ch.id, position: p, duration: d, updatedAt: Date.now(),
-        item: ch,
-        
-      }).catch(() => {});
+      void db.history.put({ id: ch.id, position: p, duration: d, updatedAt: Date.now(), item: ch }).catch(() => {});
     };
     if (!isLive) saver = window.setInterval(persist, 5000);
 
@@ -376,12 +364,7 @@ export function usePlayer(channel: Channel | null) {
         }
         if (!buf && b.length) buf = b.end(b.length - 1);
       } catch {}
-      setState((s) => ({
-        ...s,
-        currentTime: video.currentTime,
-        duration: isFinite(video.duration) ? video.duration : 0,
-        buffered: buf,
-      }));
+      setState((s) => ({ ...s, currentTime: video.currentTime, duration: isFinite(video.duration) ? video.duration : 0, buffered: buf }));
     };
     const onVolume = () => setState((s) => ({ ...s, volume: video.volume, muted: video.muted }));
     const onEnded = () => {
@@ -425,9 +408,7 @@ export function usePlayer(channel: Channel | null) {
     },
     seekBy: (d: number) => {
       const v = videoRef.current;
-      if (v && isFinite(v.duration) && v.duration > 0) {
-        v.currentTime = Math.max(0, Math.min(v.duration, v.currentTime + d));
-      }
+      if (v && isFinite(v.duration) && v.duration > 0) v.currentTime = Math.max(0, Math.min(v.duration, v.currentTime + d));
     },
     setVolume: (vol: number) => {
       const v = videoRef.current;
@@ -466,9 +447,7 @@ export function usePlayer(channel: Channel | null) {
       el.track.mode = "showing";
       extTracksRef.current.push({ id, el, url, offset: 0 });
       activeExtRef.current = id;
-      setState((s) => ({
-        ...s, extSubs: [...s.extSubs, { id, label }], activeExtSub: id, subOffset: 0, activeSubtitle: -1,
-      }));
+      setState((s) => ({ ...s, extSubs: [...s.extSubs, { id, label }], activeExtSub: id, subOffset: 0, activeSubtitle: -1 }));
     },
     setExtSubtitle: (id: string | null) => {
       for (const t of extTracksRef.current) t.el.track.mode = t.id === id ? "showing" : "disabled";
@@ -483,8 +462,8 @@ export function usePlayer(channel: Channel | null) {
       if (!cues) return;
       for (const c of Array.from(cues)) {
         const st = Math.max(0, c.startTime + delta);
-        const en = Math.max(st + 0.05, c.endTime + delta);
-        c.startTime = st; c.endTime = en;
+        c.startTime = st;
+        c.endTime = Math.max(st + 0.05, c.endTime + delta);
       }
       cur.offset = Math.round((cur.offset + delta) * 10) / 10;
       setState((s) => ({ ...s, subOffset: cur.offset }));
