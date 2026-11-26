@@ -20,38 +20,56 @@ export function Sidebar() {
 
   return (
     <>
-      {sidebarOpen && <div className="fixed inset-0 z-30 bg-black/70 backdrop-blur-sm lg:hidden" onClick={() => setSidebarOpen(false)} />}
-      <aside className={clsx(
-        "fixed left-0 top-0 z-40 flex h-screen w-64 shrink-0 flex-col border-r border-white/5 bg-bg-soft/95 backdrop-blur-xl transition-transform duration-200 lg:sticky lg:translate-x-0 lg:bg-bg-soft/70",
-        sidebarOpen ? "translate-x-0" : "-translate-x-full"
-      )}>
-        <div className="flex items-center justify-between border-b border-white/5 p-5">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-brand to-iris font-black shadow-card">S</div>
-            <div>
-              <span className="block text-lg font-bold leading-none tracking-tight">StreamBox</span>
-              <span className="text-[10px] uppercase tracking-[0.18em] text-ink-dim">Tu IPTV</span>
-            </div>
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-30 bg-black/70 backdrop-blur-sm lg:hidden" onClick={() => setSidebarOpen(false)} />
+      )}
+      <aside
+        className={clsx(
+          "fixed left-0 top-0 z-40 flex h-screen w-[220px] shrink-0 flex-col border-r border-bg-line",
+          "bg-bg-surface/95 backdrop-blur-xl transition-transform duration-200",
+          "lg:sticky lg:translate-x-0 lg:bg-bg-surface/60",
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        )}
+      >
+        <div className="flex items-center gap-2.5 border-b border-bg-line px-4 py-4">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-brand via-iris to-signal font-black shadow-glow">
+            S
           </div>
-          <button onClick={() => setSidebarOpen(false)} className="rounded p-1 hover:bg-white/10 lg:hidden" aria-label="Cerrar menu"><X className="h-5 w-5" /></button>
+          <div className="min-w-0 flex-1">
+            <span className="block truncate text-base font-bold leading-none tracking-tight">StreamBox</span>
+            <span className="text-[10px] uppercase tracking-[0.2em] text-ink-dim">IPTV Player</span>
+          </div>
+          <button onClick={() => setSidebarOpen(false)} className="rounded p-1 hover:bg-white/10 lg:hidden" aria-label="Cerrar menu">
+            <X className="h-4 w-4" />
+          </button>
         </div>
 
-        <nav className="flex-1 space-y-1 overflow-y-auto p-3">
+        <nav className="flex-1 space-y-1 overflow-y-auto p-2.5">
           {items.map((it) => (
-            <NavLink key={it.to} to={it.to} end={it.to === "/"} data-focusable="true" onClick={() => setSidebarOpen(false)}
-              className={({ isActive }) => clsx(
-                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium",
-                isActive ? "bg-brand/15 text-brand" : "text-ink-muted hover:bg-bg-hover hover:text-ink"
-              )}
+            <NavLink
+              key={it.to}
+              to={it.to}
+              end={it.to === "/"}
+              data-focusable="true"
+              onClick={() => setSidebarOpen(false)}
+              className={({ isActive }) =>
+                clsx(
+                  "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium",
+                  isActive
+                    ? "bg-gradient-to-r from-signal/20 to-transparent text-signal ring-1 ring-signal/30"
+                    : "text-ink-muted hover:bg-bg-raised hover:text-ink"
+                )
+              }
             >
-              <it.icon className="h-5 w-5" /> {it.label}
+              <it.icon className="h-[18px] w-[18px]" />
+              {it.label}
             </NavLink>
           ))}
         </nav>
 
-        <div className="border-t border-white/5 p-4 text-[11px] leading-relaxed text-ink-dim">
-          <p className="font-semibold text-ink-muted">StreamBox v0.4</p>
-          <p>Flechas para navegar · Enter abre</p>
+        <div className="border-t border-bg-line p-3 text-[11px] leading-relaxed text-ink-dim">
+          <p className="font-semibold text-ink-muted">Flechas para navegar</p>
+          <p>Enter abre Â· Esc retrocede</p>
         </div>
       </aside>
     </>

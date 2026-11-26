@@ -1,20 +1,28 @@
 /**
- * Navegacion espacial por foco (flechas / D-pad / mando TV).
- * Elige el elemento enfocable mas cercano en la direccion pulsada,
- * ponderando distancia en el eje principal y desalineacion en el cruzado.
- * El reproductor gestiona sus propias flechas y los modales bloquean el fondo.
+ * Navegacion espacial (flechas / D-pad / mando).
+ * Elige el enfocable mas cercano en la direccion pulsada. Los overlays
+ * marcados con data-nav-lock encierran la navegacion; el reproductor
+ * gestiona sus propias flechas.
  */
 import { useEffect } from "react";
 
 const SELECTOR = '[data-focusable="true"]';
 const DIRS: Record<string, [number, number]> = {
-  ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
+  ArrowUp: [0, -1],
+  ArrowDown: [0, 1],
+  ArrowLeft: [-1, 0],
+  ArrowRight: [1, 0],
 };
 
 function isTyping(el: Element | null): boolean {
   if (!el) return false;
   const t = el as HTMLElement;
-  return t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable === true;
+  return (
+    t.tagName === "INPUT" ||
+    t.tagName === "TEXTAREA" ||
+    t.tagName === "SELECT" ||
+    t.isContentEditable === true
+  );
 }
 
 export function useSpatialNav(enabled = true) {
@@ -22,8 +30,8 @@ export function useSpatialNav(enabled = true) {
     if (!enabled) return;
 
     const collect = (): HTMLElement[] => {
-      const lock = document.querySelector("[data-nav-lock]");
-      const root: ParentNode = lock ?? document;
+      const locks = document.querySelectorAll("[data-nav-lock]");
+      const root: ParentNode = locks.length ? locks[locks.length - 1] : document;
       return (Array.from(root.querySelectorAll(SELECTOR)) as HTMLElement[]).filter((n) => {
         const r = n.getBoundingClientRect();
         return r.width > 1 && r.height > 1 && !n.hasAttribute("disabled");
@@ -61,8 +69,7 @@ export function useSpatialNav(enabled = true) {
       if (target && target.closest('[data-nav-scope="player"]')) return;
 
       const nodes = collect();
-      if (nodes.length === 0) return;
-
+      if (!nodes.length) return;
       const found = pick(nodes, dir);
       if (found) {
         e.preventDefault();
@@ -70,15 +77,16 @@ export function useSpatialNav(enabled = true) {
         found.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
         return;
       }
-
-      // Lista virtualizada: el siguiente puede no estar montado aun.
-      if (dir[1] !== 0) {
+      if (dir[1] !== 0 && !document.querySelector("[data-nav-lock]")) {
         e.preventDefault();
         window.scrollBy({ top: dir[1] * window.innerHeight * 0.55, behavior: "smooth" });
         window.setTimeout(() => {
           const again = pick(collect(), dir);
-          if (again) { again.focus({ preventScroll: true }); again.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
-        }, 260);
+          if (again) {
+            again.focus({ preventScroll: true });
+            again.scrollIntoView({ block: "nearest", behavior: "smooth" });
+          }
+        }, 250);
       }
     };
 
