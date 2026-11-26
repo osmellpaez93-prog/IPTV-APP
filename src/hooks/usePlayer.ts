@@ -1,11 +1,8 @@
 /**
- * Logica del reproductor:
- *  - hls.js para .m3u8, mpegts.js para MPEG-TS/FLV, <video> nativo para mp4/mkv
- *  - En TV en vivo prueba varios formatos del mismo canal (.m3u8 y .ts) antes de rendirse
- *  - mpegts.js SIN worker: evita el bug del Blob-URL y el bucle de appendBuffer
- *    cuando el codec de audio no esta soportado (ver services/mseGuard.ts)
- *  - Detecta AC-3/DTS y da un mensaje claro en lugar de errores cruptos
- */
+* Logica del reproductor:
+*  - hls.js para .m3u8, mpegts.js para MPEG-TS/FLV, <video> nativo para mp4/mkv
+*  - En TV en vivo prueba varios formatos del mismo canal (.m3u8 y .ts) antes de rendirse
+*/
 import { useCallback, useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
 import mpegts from "mpegts.js";
@@ -56,37 +53,21 @@ function detectKind(raw: string): Kind {
   if (path.endsWith(".m3u8") || /[?&]type=m3u8/i.test(raw)) return "hls";
   if (path.endsWith(".flv")) return "flv";
   let pathname = path;
-  try {
-    pathname = new URL(raw).pathname.toLowerCase();
-  } catch {}
+  try { pathname = new URL(raw).pathname.toLowerCase(); } catch {}
   if (pathname.endsWith(".ts") || /^\/(live\/)?[^/]+\/[^/]+\/\d+$/.test(pathname)) return "ts";
   return "native";
 }
 
-// .m3u8 PRIMERO (mejor compatibilidad), luego .ts y la URL original.
 function buildCandidates(channel: Channel): string[] {
-  const list: string[] = [];
+  const list = [channel.url, ...(channel.altUrls ?? [])];
   if (channel.category === "live") {
-    const m = channel.url.match(
-      /^(https?:\/\/[^/]+)\/(?:live\/)?([^/]+)\/([^/]+)\/(\d+)(?:\.(?:ts|m3u8))?(?:\?.*)?$/i
-    );
+    const m = channel.url.match(/^(https?:\/\/[^/]+)\/(?:live\/)?([^/]+)\/([^/]+)\/(\d+)(?:\.(?:ts|m3u8))?(?:\?.*)?$/i);
     if (m) {
       const base = `${m[1]}/live/${m[2]}/${m[3]}/${m[4]}`;
       list.push(`${base}.m3u8`, `${base}.ts`);
     }
   }
-  list.push(channel.url, ...(channel.altUrls ?? []));
   return Array.from(new Set(list.filter(Boolean)));
-}
-
-// El guard lanza "Audio codec no soportado por el navegador: audio/mp4;codecs=ac-3"
-// Detectamos aqui esos codecs para dar un mensaje entendible al usuario.
-const CODEC_RE = /ac-?3|ec-?3|eac-?3|dtsc|dtse|dtsl|mlpa|ac-?4/i;
-function friendlyCodecError(msg: string): string | null {
-  const m = msg.match(CODEC_RE);
-  if (!m) return null;
-  const codec = m[0].toUpperCase().replace("EAC", "E-AC").replace("AC3", "AC-3").replace("AC4", "AC-4");
-  return `Este canal usa audio Dolby/DTS (${codec}) que tu navegador no puede decodificar. Prueba en Firefox, o usa un navegador con soporte Dolby (Edge + Dolby Access).`;
 }
 
 export function usePlayer(channel: Channel | null) {
@@ -99,10 +80,8 @@ export function usePlayer(channel: Channel | null) {
   const [state, setState] = useState<PlayerState>(INITIAL);
 
   const destroyEngines = useCallback(() => {
-    if (hlsRef.current) {
-      try { hlsRef.current.destroy(); } catch {}
-      hlsRef.current = null;
-    }
+    hlsRef.current?.destroy();
+    hlsRef.current = null;
     if (tsRef.current) {
       try {
         tsRef.current.pause();
@@ -112,35 +91,17 @@ export function usePlayer(channel: Channel | null) {
       } catch {}
       tsRef.current = null;
     }
-    // Reset completo del <video>: si el MediaSource quedo roto por un codec
-    // no soportado, esto limpia el estado para el siguiente intento.
-    const video = videoRef.current;
-    if (video) {
-      try {
-        video.removeAttribute("src");
-        video.load();
-      } catch {}
-    }
   }, []);
 
   const clearExtSubs = useCallback(() => {
     for (const t of extTracksRef.current) {
-      try {
-        t.el.remove();
-        URL.revokeObjectURL(t.url);
-      } catch {}
+      try { t.el.remove(); URL.revokeObjectURL(t.url); } catch {}
     }
     extTracksRef.current = [];
     setState((s) => ({ ...s, extSubs: [], activeExtSub: null, subOffset: 0 }));
   }, []);
 
-  useEffect(
-    () => () => {
-      destroyEngines();
-      clearExtSubs();
-    },
-    [destroyEngines, clearExtSubs]
-  );
+  useEffect(() => () => { destroyEngines(); clearExtSubs(); }, [destroyEngines, clearExtSubs]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -151,30 +112,18 @@ export function usePlayer(channel: Channel | null) {
     let idx = 0;
     let timer: number | undefined;
     const candidates = buildCandidates(channel);
-    const errors: string[] = [];
 
-    const clearTimer = () => {
-      if (timer) window.clearTimeout(timer);
-      timer = undefined;
-    };
+    const clearTimer = () => { if (timer) window.clearTimeout(timer); timer = undefined; };
     const failFinal = (msg: string) => {
       clearTimer();
-      // Si algun candidato fallo por codec de audio, ese es el error real.
-      const codecMsg = [...errors, msg].map(friendlyCodecError).find(Boolean);
       const tried = candidates.length > 1 ? ` (se probaron ${candidates.length} formatos)` : "";
-      setState((s) => ({ ...s, error: codecMsg || msg + tried, loading: false }));
+      setState((s) => ({ ...s, error: msg + tried, loading: false }));
     };
     const next = (msg: string) => {
       if (cancelled) return;
       clearTimer();
-      errors.push(msg);
-      destroyEngines();
-      if (idx + 1 < candidates.length) {
-        idx++;
-        start();
-      } else {
-        failFinal(msg);
-      }
+      if (idx + 1 < candidates.length) { idx++; start(); }
+      else failFinal(msg);
     };
     fallbackRef.current = next;
 
@@ -183,15 +132,9 @@ export function usePlayer(channel: Channel | null) {
 
     const start = async () => {
       destroyEngines();
-      setState((s) => ({
-        ...s,
-        loading: true,
-        error: null,
-        audioTracks: [],
-        subtitleTracks: [],
-        currentTime: 0,
-        duration: 0,
-      }));
+      video.removeAttribute("src");
+      video.load();
+      setState((s) => ({ ...s, loading: true, error: null, audioTracks: [], subtitleTracks: [], currentTime: 0, duration: 0 }));
 
       try {
         const raw = candidates[idx];
@@ -219,34 +162,19 @@ export function usePlayer(channel: Channel | null) {
             });
             hls.on(Hls.Events.ERROR, (_e, data) => {
               if (!data.fatal) return;
-              if (data.type === Hls.ErrorTypes.NETWORK_ERROR && retries < 2) {
-                retries++;
-                hls.startLoad();
-              } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR && retries < 2) {
-                retries++;
-                hls.recoverMediaError();
-              } else {
-                next(`Error HLS: ${data.details}`);
-              }
+              if (data.type === Hls.ErrorTypes.NETWORK_ERROR && retries < 2) { retries++; hls.startLoad(); }
+              else if (data.type === Hls.ErrorTypes.MEDIA_ERROR && retries < 2) { retries++; hls.recoverMediaError(); }
+              else next(`Error HLS: ${data.details}`);
             });
           } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
             video.src = url;
             video.play().catch(() => {});
-          } else {
-            next("HLS no soportado en este navegador");
-          }
+          } else next("HLS no soportado en este navegador");
         } else if (kind === "ts" || kind === "flv") {
           if (mpegts.isSupported()) {
             const player = mpegts.createPlayer(
               { type: kind === "flv" ? "flv" : "mpegts", url, isLive: true },
-              {
-                // Worker OFF: el worker hace fetch desde un Blob-URL (origin blob:)
-                // y ademas, si el codec de audio falla, entra en bucle de appendBuffer.
-                // En hilo principal el guard de MSE aborta limpio y podemos fallback.
-                enableWorker: false,
-                liveBufferLatencyChasing: true,
-                stashInitialSize: 384,
-              }
+              { enableWorker: true, liveBufferLatencyChasing: true }
             );
             tsRef.current = player;
             player.attachMediaElement(video);
@@ -286,13 +214,12 @@ export function usePlayer(channel: Channel | null) {
     const onPause = () => setState((s) => ({ ...s, isPlaying: false }));
     const onWaiting = () => setState((s) => ({ ...s, loading: true }));
     const onCanPlay = () => setState((s) => ({ ...s, loading: false }));
-    const onTime = () =>
-      setState((s) => ({ ...s, currentTime: video.currentTime, duration: isFinite(video.duration) ? video.duration : 0 }));
+    const onTime = () => setState((s) => ({ ...s, currentTime: video.currentTime, duration: isFinite(video.duration) ? video.duration : 0 }));
     const onVolume = () => setState((s) => ({ ...s, volume: video.volume, muted: video.muted }));
     const onError = () => {
       if (!video.getAttribute("src") && !hlsRef.current && !tsRef.current) return;
-      if (fallbackRef.current) fallbackRef.current("Error de reproducciÃ³n");
-      else setState((s) => ({ ...s, error: "Error de reproducciÃ³n", loading: false }));
+      if (fallbackRef.current) fallbackRef.current("Error de reproduccion");
+      else setState((s) => ({ ...s, error: "Error de reproduccion", loading: false }));
     };
     video.addEventListener("play", onPlay);
     video.addEventListener("pause", onPause);
@@ -313,64 +240,22 @@ export function usePlayer(channel: Channel | null) {
   }, []);
 
   const actions = {
-    playPause: () => {
-      const v = videoRef.current;
-      if (!v) return;
-      if (v.paused) v.play().catch(() => {});
-      else v.pause();
-    },
-    seek: (t: number) => {
-      const v = videoRef.current;
-      if (v && isFinite(v.duration) && v.duration > 0) v.currentTime = Math.max(0, Math.min(v.duration, t));
-    },
-    setVolume: (vol: number) => {
-      const v = videoRef.current;
-      if (v) v.volume = Math.max(0, Math.min(1, vol));
-    },
-    setMuted: (m: boolean) => {
-      const v = videoRef.current;
-      if (v) v.muted = m;
-    },
-    setPlaybackRate: (r: number) => {
-      const v = videoRef.current;
-      if (v) v.playbackRate = r;
-      setState((s) => ({ ...s, playbackRate: r }));
-    },
-    setAudioTrack: (id: number) => {
-      if (hlsRef.current) {
-        hlsRef.current.audioTrack = id;
-        setState((s) => ({ ...s, activeAudio: id }));
-      }
-    },
-    setSubtitleTrack: (id: number) => {
-      if (hlsRef.current) {
-        hlsRef.current.subtitleTrack = id;
-        setState((s) => ({ ...s, activeSubtitle: id }));
-      }
-    },
-    requestPiP: async () => {
-      const v = videoRef.current;
-      if (!v) return;
-      try {
-        if (document.pictureInPictureElement) await document.exitPictureInPicture();
-        else if (v.requestPictureInPicture) await v.requestPictureInPicture();
-      } catch {}
-    },
+    playPause: () => { const v = videoRef.current; if (!v) return; if (v.paused) v.play().catch(() => {}); else v.pause(); },
+    seek: (t: number) => { const v = videoRef.current; if (v && isFinite(v.duration) && v.duration > 0) v.currentTime = Math.max(0, Math.min(v.duration, t)); },
+    setVolume: (vol: number) => { const v = videoRef.current; if (v) v.volume = Math.max(0, Math.min(1, vol)); },
+    setMuted: (m: boolean) => { const v = videoRef.current; if (v) v.muted = m; },
+    setPlaybackRate: (r: number) => { const v = videoRef.current; if (v) v.playbackRate = r; setState((s) => ({ ...s, playbackRate: r })); },
+    setAudioTrack: (id: number) => { if (hlsRef.current) { hlsRef.current.audioTrack = id; setState((s) => ({ ...s, activeAudio: id })); } },
+    setSubtitleTrack: (id: number) => { if (hlsRef.current) { hlsRef.current.subtitleTrack = id; setState((s) => ({ ...s, activeSubtitle: id })); } },
+    requestPiP: async () => { const v = videoRef.current; if (!v) return; try { if (document.pictureInPictureElement) await document.exitPictureInPicture(); else if (v.requestPictureInPicture) await v.requestPictureInPicture(); } catch {} },
     addSubtitle: (label: string, vtt: string) => {
-      const v = videoRef.current;
-      if (!v) return;
+      const v = videoRef.current; if (!v) return;
       for (const t of extTracksRef.current) t.el.track.mode = "disabled";
-      Array.from(v.textTracks).forEach((t) => {
-        if (t.mode === "showing") t.mode = "disabled";
-      });
+      Array.from(v.textTracks).forEach((t) => { if (t.mode === "showing") t.mode = "disabled"; });
       const url = URL.createObjectURL(new Blob([vtt], { type: "text/vtt" }));
       const el = document.createElement("track");
-      el.kind = "subtitles";
-      el.label = label;
-      el.src = url;
-      el.default = true;
-      v.appendChild(el);
-      el.track.mode = "showing";
+      el.kind = "subtitles"; el.label = label; el.src = url; el.default = true;
+      v.appendChild(el); el.track.mode = "showing";
       const id = String(Date.now()) + Math.random().toString(36).slice(2, 5);
       extTracksRef.current.push({ id, el, url, offset: 0 });
       setState((s) => ({ ...s, extSubs: [...s.extSubs, { id, label }], activeExtSub: id, subOffset: 0, activeSubtitle: -1 }));
@@ -383,12 +268,8 @@ export function usePlayer(channel: Channel | null) {
     shiftSubtitles: (delta: number) => {
       const cur = extTracksRef.current.find((t) => t.id === state.activeExtSub);
       if (!cur) return;
-      const cues = cur.el.track.cues;
-      if (!cues) return;
-      for (const c of Array.from(cues)) {
-        c.startTime = Math.max(0, c.startTime + delta);
-        c.endTime = Math.max(0.05, c.endTime + delta);
-      }
+      const cues = cur.el.track.cues; if (!cues) return;
+      for (const c of Array.from(cues)) { c.startTime = Math.max(0, c.startTime + delta); c.endTime = Math.max(0.05, c.endTime + delta); }
       cur.offset = Math.round((cur.offset + delta) * 10) / 10;
       setState((s) => ({ ...s, subOffset: cur.offset }));
     },

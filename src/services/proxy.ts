@@ -1,37 +1,17 @@
-/**
- * URLs del proxy. SIEMPRE absolutas: los Workers (hls.js/mpegts.js) y las
- * paginas HTTPS no resuelven bien rutas relativas segun contexto.
- */
+// Construye URLs que pasan por el proxy Node para evitar CORS / mixed content.
 import { getSettings } from "../db";
-
-export type ProxyKind = "playlist" | "stream" | "image";
-
-let baseSync = "/proxy";
-
-export function toAbsolute(u: string): string {
-  if (!u) return u;
-  if (/^(https?:|blob:|data:)/i.test(u)) return u;
-  if (typeof location === "undefined") return u;
-  try {
-    return new URL(u, location.origin).href;
-  } catch {
-    return u;
-  }
-}
-
-export async function proxify(url: string, kind: ProxyKind = "stream"): Promise<string> {
+export async function proxify(url: string, kind: "playlist" | "stream" | "image" = "stream"): Promise<string> {
   if (!url) return url;
   const s = await getSettings();
-  baseSync = (s.proxyUrl || "/proxy").replace(/\/+$/, "") || "/proxy";
-  if (url.startsWith(baseSync + "/")) return toAbsolute(url);
-  return toAbsolute(`${baseSync}/${kind}?url=${encodeURIComponent(url)}`);
+  const base = (s.proxyUrl || "/proxy").replace(/\/$/, "");
+  if (url.startsWith(base + "/")) return url;
+  return `${base}/${kind}?url=${encodeURIComponent(url)}`;
 }
-
-/** Logos http:// no cargan en HTTPS (mixed content): los pasamos por el proxy. */
+// Logos http:// no cargan dentro de una pagina https://, los pasamos por el proxy.
 export function imgUrl(url?: string): string | undefined {
   if (!url) return undefined;
-  if (/^http:\/\//i.test(url)) {
-    return toAbsolute(`${baseSync}/image?url=${encodeURIComponent(url)}`);
+  if (url.startsWith("http://") && typeof location !== "undefined" && location.protocol === "https:") {
+    return `/proxy/image?url=${encodeURIComponent(url)}`;
   }
   return url;
 }
