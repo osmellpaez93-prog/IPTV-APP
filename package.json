@@ -7,12 +7,15 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+"tauri": "tauri",
+"tauri:dev": "tauri dev",
     "server": "node server/index.js",
     "start": "concurrently -n server,web \"npm run server\" \"npm run dev\""
   },
   "dependencies": {
     "@fontsource/inter": "^5.1.0",
     "clsx": "^2.1.1",
+"@tauri-apps/api": "^2.1.1",
     "cors": "^2.8.5",
     "dexie": "^4.0.8",
     "dexie-react-hooks": "^1.1.7",
@@ -30,6 +33,7 @@
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.2",
     "autoprefixer": "^10.4.20",
+"@tauri-apps/cli": "^2.1.0",
     "concurrently": "^9.0.1",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.13",

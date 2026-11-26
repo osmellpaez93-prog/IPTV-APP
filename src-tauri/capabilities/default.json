@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capacidades basicas de la ventana principal de StreamBox",
+  "windows": ["main"],
+  "permissions": [
+    "core:default"
+  ]
+}
