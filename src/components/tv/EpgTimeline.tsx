@@ -14,6 +14,7 @@ interface Props {
   channels: Channel[];
   selectedId: string | null;
   onSelect: (c: Channel) => void;
+  onPick?: (c: Channel) => void;
   onPlay: (c: Channel) => void;
   pxPerMin: number;
   startMs: number;
@@ -22,7 +23,7 @@ interface Props {
 
 interface Block { left: number; width: number; p: Programme | null }
 
-export function EpgTimeline({ channels, selectedId, onSelect, onPlay, pxPerMin, startMs, minutes }: Props) {
+export function EpgTimeline({ channels, selectedId, onSelect, onPick, onPlay, pxPerMin, startMs, minutes }: Props) {
   const scRef = useRef<HTMLDivElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const [range, setRange] = useState({ s: 0, e: 24 });
@@ -126,7 +127,7 @@ export function EpgTimeline({ channels, selectedId, onSelect, onPlay, pxPerMin, 
       if (channels[n]) onSelect(channels[n]);
     } else if (e.key === "Enter" && i >= 0) {
       e.preventDefault();
-      onPlay(channels[i]);
+      (onPick ?? onPlay)(channels[i]);
     } else if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
       e.preventDefault();
       scRef.current?.scrollBy({ left: (e.key === "ArrowRight" ? 1 : -1) * 30 * pxPerMin, behavior: "smooth" });
@@ -172,7 +173,7 @@ export function EpgTimeline({ channels, selectedId, onSelect, onPlay, pxPerMin, 
               return (
                 <div key={ch.id} className="flex border-b border-[#141d2e]" style={{ height: ROW }}>
                   <div
-                    onClick={() => onSelect(ch)}
+                    onClick={() => (onPick ?? onSelect)(ch)}
                     onDoubleClick={() => onPlay(ch)}
                     className={clsx(
                       "group sticky left-0 z-20 flex shrink-0 cursor-pointer items-center gap-2 border-r border-[#22304a] px-2",

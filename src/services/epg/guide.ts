@@ -22,16 +22,19 @@ const inflight = new Map<string, Promise<Programme[]>>();
 const inTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in (window as any);
 
+// Si existe src/services/net.ts (Fase 2 de Tauri: appFetch) se usa; si no, el proxy de siempre.
+const netModules = import.meta.glob("../net.ts");
+
 async function httpGet(url: string): Promise<Response> {
-  if (inTauri) {
-    const mod: any = await import(/* @vite-ignore */ "@tauri-apps/plugin-http");
-    return mod.fetch(url, {
-      headers: { "User-Agent": "VLC/3.0.20 LibVLC/3.0.20", Accept: "*/*" },
-    });
+  const load = netModules["../net.ts"];
+  if (load) {
+    try {
+      const m: any = await load();
+      if (typeof m.appFetch === "function") return await m.appFetch(url, { headers: { Accept: "*/*" } });
+    } catch {}
   }
   return fetch(await proxify(url, "playlist"));
 }
-
 // Cola de concurrencia limitada
 let running = 0;
 const waiting: Array<() => void> = [];

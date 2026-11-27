@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Channel } from "../types";
 
-export type ViewMode = "mini" | "theater" | "full";
+export type ViewMode = "mini" | "theater" | "full" | "inline";
 export type MiniSize = "s" | "m" | "l";
 export type Corner = "tl" | "tr" | "bl" | "br";
 export type Density = "compact" | "normal" | "comfy";
@@ -53,6 +53,10 @@ interface UIState {
   /** Reproduce directamente (boton Reproducir de la ficha, continuar viendo, panel de canales). */
   playNow: (c: Channel, list?: Channel[]) => void;
   setQueue: (list: Channel[]) => void;
+  /** Reproduce dentro de la miniatura de la guia (modo inline). */
+  playInline: (c: Channel, list?: Channel[]) => void;
+  inlineSlot: HTMLElement | null;
+  setInlineSlot: (el: HTMLElement | null) => void;
   zap: (delta: number) => void;
   zapTo: (index: number) => void;
 
@@ -129,6 +133,10 @@ export const useStore = create<UIState>()(
           viewMode: s.nowPlaying ? s.viewMode : THEATER,
         })),
 
+      playInline: (c, list) =>
+        set({ nowPlaying: c, queue: list && list.length ? list : [c], viewMode: "inline" as ViewMode }),
+      inlineSlot: null,
+      setInlineSlot: (el) => set({ inlineSlot: el }),
       setQueue: (list) => set({ queue: list }),
       zap: (delta) => {
         const { queue, nowPlaying } = get();

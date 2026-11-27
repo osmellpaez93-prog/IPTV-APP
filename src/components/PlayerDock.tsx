@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { clsx } from "clsx";
 import { Player } from "./Player";
 import { ChannelRail } from "./ChannelRail";
@@ -22,6 +23,7 @@ export function PlayerDock() {
   const zap = useStore((s) => s.zap);
   const zapTo = useStore((s) => s.zapTo);
   const multiview = useStore((s) => s.multiview);
+  const inlineSlot = useStore((s) => s.inlineSlot);
 
   const [rail, setRail] = useState(true);
   const [drag, setDrag] = useState<{ x: number; y: number } | null>(null);
@@ -56,9 +58,9 @@ export function PlayerDock() {
   const player = (
     <Player
       channel={nowPlaying}
-      mode={viewMode}
+      mode={viewMode === "inline" ? (inlineSlot ? "cell" : "mini") : viewMode}
       onClose={close}
-      onMode={setViewMode}
+      onMode={(m) => setViewMode(m === "mini" && inlineSlot ? "inline" : m)}
       onPrev={canZap ? () => zap(-1) : undefined}
       onNext={canZap ? () => zap(1) : undefined}
       onJump={canZap ? (i) => zapTo(i) : undefined}
@@ -79,6 +81,11 @@ export function PlayerDock() {
         )}
       </div>
     );
+  }
+
+  // ---- En linea: dentro de la miniatura de la guia (si no esta visible, cae a mini flotante) ----
+  if (viewMode === "inline" && inlineSlot) {
+    return createPortal(<div className="h-full w-full">{player}</div>, inlineSlot);
   }
 
   // ---- Mini flotante ----

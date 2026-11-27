@@ -98,7 +98,7 @@ export function Player({
     return () => document.removeEventListener("fullscreenchange", onFs);
   }, []);
 
-  useEffect(() => { boxRef.current?.focus({ preventScroll: true }); }, [channel.id, mode]);
+  useEffect(() => { if (mode !== "cell") boxRef.current?.focus({ preventScroll: true }); }, [channel.id, mode]);
 
   // Celdas de multivision: solo suena la activa.
   useEffect(() => {

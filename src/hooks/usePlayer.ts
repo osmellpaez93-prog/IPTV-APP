@@ -77,6 +77,32 @@ export function detectKind(raw: string): EngineKind {
   return "native";
 }
 
+// Formato preferido para TV en vivo: el que funciono la ultima vez en ese servidor.
+// Sin dato previo, MPEG-TS primero (casi todos los paneles Xtream lo sirven y HLS suele
+// tardar o no existir, lo que anade segundos de espera antes del siguiente intento).
+const PREF_PREFIX = "streambox-fmt:";
+function hostOf(u: string): string {
+  try { return new URL(u).host; } catch { return ""; }
+}
+function readPref(host: string): EngineKind | null {
+  try {
+    const v = localStorage.getItem(PREF_PREFIX + host);
+    return v === "ts" || v === "hls" ? v : null;
+  } catch { return null; }
+}
+function writePref(host: string, kind: EngineKind) {
+  try { if (host && (kind === "ts" || kind === "hls")) localStorage.setItem(PREF_PREFIX + host, kind); } catch {}
+}
+function preferTs(urls: string[], ch: Channel): string[] {
+  if (ch.category !== "live") return urls;
+  const pref = readPref(hostOf(ch.url)) ?? "ts";
+  const rank = (u: string) => {
+    const k = detectKind(u);
+    return k === pref ? 0 : k === "ts" || k === "hls" ? 1 : 2;
+  };
+  return [...urls].sort((a, b) => rank(a) - rank(b));
+}
+
 function buildCandidates(ch: Channel): Source[] {
   const urls = [ch.url, ...(ch.altUrls ?? [])].filter(Boolean);
   if (ch.category === "live") {
@@ -86,7 +112,7 @@ function buildCandidates(ch: Channel): Source[] {
       urls.push(`${base}.m3u8`, `${base}.ts`, base);
     }
   }
-  const direct = Array.from(new Set(urls));
+  const direct = preferTs(Array.from(new Set(urls)), ch);
   const list: Source[] = direct.map((url) => ({ url }));
   if (ch.category === "live" && direct.length) {
     const tsUrl = direct.find((u) => detectKind(u) === "ts") ?? direct[0];
@@ -258,6 +284,10 @@ export function usePlayer(channel: Channel | null) {
       if (!alive) return;
 
       setState((s) => ({ ...s, engine: kind }));
+      // Recuerda el formato que funciona en este servidor (solo si ESTE intento llega a reproducir)
+      if (isLive && !src.tx && (kind === "ts" || kind === "hls")) {
+        video.addEventListener("playing", () => { if (my === seq) writePref(hostOf(src.url), kind); }, { once: true });
+      }
       clearWatchdog();
       watchdog = window.setTimeout(
         () => bail(isLive ? "El canal no responde" : "La fuente no responde"),

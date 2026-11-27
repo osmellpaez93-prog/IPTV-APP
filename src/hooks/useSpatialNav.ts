@@ -6,7 +6,7 @@
  */
 import { useEffect } from "react";
 
-const SELECTOR = '[data-focusable="true"]';
+const SELECTOR = '[data-focusable="true"], [data-sbfocus="1"]';
 const DIRS: Record<string, [number, number]> = {
   ArrowUp: [0, -1],
   ArrowDown: [0, 1],
@@ -61,7 +61,7 @@ export function useSpatialNav(enabled = true) {
     };
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
       const dir = DIRS[e.key];
       if (!dir) return;
       const target = e.target as HTMLElement | null;
