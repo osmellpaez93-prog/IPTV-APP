@@ -176,8 +176,8 @@ export function EpgTimeline({ channels, selectedId, onSelect, onPick, onPlay, px
                     onClick={() => (onPick ?? onSelect)(ch)}
                     onDoubleClick={() => onPlay(ch)}
                     className={clsx(
-                      "group sticky left-0 z-20 flex shrink-0 cursor-pointer items-center gap-2 border-r border-[#22304a] px-2",
-                      on ? "sb-row-on" : "bg-[#0d1320] hover:bg-[#141d2e]"
+                      "group sticky left-0 z-30 flex shrink-0 cursor-pointer items-center gap-2 border-r border-[#22304a] px-2",
+                      on ? "bg-[#16233f] shadow-[inset_0_0_0_2px_#4c8dff]" : "bg-[#0d1320] hover:bg-[#141d2e]"
                     )}
                     style={{ width: LEFT }}
                   >
