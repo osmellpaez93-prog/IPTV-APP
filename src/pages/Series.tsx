@@ -1,5 +1,5 @@
-import { CategoryPage } from "./CategoryPage";
+import { VodBrowse } from "./VodBrowse";
 
 export function Series() {
-  return <CategoryPage category="series" title="Series" placeholder="Buscar serie..." noun="títulos" />;
+  return <VodBrowse kind="series" />;
 }

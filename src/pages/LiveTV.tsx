@@ -1,5 +1,5 @@
-import { CategoryPage } from "./CategoryPage";
+import { TvGuide } from "./TvGuide";
 
 export function LiveTV() {
-  return <CategoryPage category="live" title="TV en vivo" placeholder="Buscar canal..." noun="canales" />;
+  return <TvGuide />;
 }
